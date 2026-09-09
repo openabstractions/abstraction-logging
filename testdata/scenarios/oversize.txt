@@ -1,0 +1,26 @@
+# requires: logging
+#
+# One property lets several processes on several machines append to one file:
+# a whole record goes out in one write, so writers interleave whole lines rather
+# than halves of two. A record too big for that cap has three possible fates and
+# only one of them keeps the property and the evidence.
+#
+# `over` counts lines longer than the cap and `marked` counts lines carrying the
+# shrink mark. The exact length of a shrunk line is not asserted, and must not
+# be: two implementations shrinking by different amounts both keep the rule, and
+# pinning the number would make one of them wrong for no reason.
+machine file
+auto A
+cap A 512
+record R 0
+msg R 8000
+write A R
+held A
+record S 0
+write A S
+held A
+
+# expect 6: ok where=file [LOG-S6]
+# expect 7: ok lines=1 over=0 marked=1 [LOG-S6]
+# expect 9: ok where=file
+# expect 10: ok lines=2 over=0 marked=1 [LOG-S6]

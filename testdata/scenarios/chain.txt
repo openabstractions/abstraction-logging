@@ -1,0 +1,58 @@
+# requires: logging
+#
+# One record travelling writer -> service -> aggregator, and the question the
+# chain exists to answer: who wrote this, and who handed it to me. With one
+# verified field the second stamp overwrites the first and the original author
+# disappears; with a chain both are on the record and both are readable.
+#
+# Nothing here opens a socket. `attest` applies what a receiving service does
+# when the platform's attester answered with that mechanism, so the arithmetic
+# of the chain is judgeable on a machine whose platform has no attester at all
+# -- the same reason another layer benches an attribute at a stated strength
+# rather than waiting for a peer that happens to land there.
+#
+# Step 5 is the forgery. A hostile writer marks its own attestation verified,
+# and step 8 is the rule: it does not survive being sent, because only the party
+# that ran a check may record that the check passed.
+record R 0
+chain R
+uid R 0
+author R
+forge R so_peercred
+chain R
+send R
+chain R
+attest R so_peercred
+chain R
+author R
+relay R
+attest R peer_cert
+chain R
+author R
+relay R
+
+# expect 2: ok 0:self:claimed [LOG-I1] [LOG-I2]
+# expect 3: ok uid=-1 [LOG-I11]
+# expect 4: no-answer unattributed [LOG-I9]
+# expect 6: ok 0:self:claimed 1:so_peercred:verified
+# expect 8: ok 0:self:claimed [LOG-I5]
+# expect 10: ok 0:self:claimed 1:so_peercred:verified [LOG-I6]
+# expect 11: ok by=so_peercred hop=1 [LOG-I7]
+# expect 12: ok by=so_peercred hop=1 [LOG-I8]
+# expect 14: ok 0:self:claimed 1:so_peercred:verified 2:peer_cert:verified [LOG-I4] [LOG-I6]
+# expect 15: ok by=so_peercred hop=1 [LOG-I7]
+# expect 16: ok by=peer_cert hop=2 [LOG-I8]
+
+# The disputed half, asserted by nothing. Steps 17 to 20 are a record whose
+# writer attached a verified attestation and a service that then stamped it. One
+# answer strips every verified attestation on accept and can never carry a
+# two-hop chain; the other strips only what the sending party said about itself
+# and believes a writer that attributes a stamp to a hop it did not occupy. The
+# contract page names both and picks neither, so this step is judged against no
+# rule.
+record U 0
+forge U so_peercred
+attest U peer_cert
+chain U
+
+# undecided 20: no rule settles whether a verified attestation a writer attached to its own record survives a service that stamps it; the implementation shipped today strips it, which also makes the two-hop chain above unreachable through it

@@ -1,0 +1,31 @@
+# requires: logging
+#
+# What one encoded record looks like, and nothing about what is in it. A
+# message, a host name and an instant belong to one machine, so every assertion
+# here is about the shape of a line -- which fields are present, how a number is
+# spelled, how wide a timestamp is. Two implementations that disagree about any
+# of that disagree about the format itself, which is the only thing this layer
+# asks several languages to share.
+#
+# The three `level` steps are the reason the scale is numeric. A binding whose
+# language has a level this one does not name must land between landmarks and
+# say so, rather than rounding to the nearer name and losing the distinction the
+# other language was making.
+level 8
+level 12
+level 2
+record R 0
+attr R bytes 328597408
+group R http status 200
+read R bytes
+read R http.status
+keys R
+encode R
+
+# expect 1: ok name=ERROR [LOG-R4]
+# expect 2: ok name=ERROR+4 [LOG-R4]
+# expect 3: ok name=INFO+2 [LOG-R4]
+# expect 7: ok type=string value=328597408 [LOG-R5]
+# expect 8: ok type=string value=200 [LOG-R6]
+# expect 9: ok bytes,http.status [LOG-R6]
+# expect 10: ok schema=1 level=0 frac=6 zone=Z lines=1 end=lf [LOG-R1] [LOG-R2] [LOG-R3] [LOG-R7]

@@ -1,0 +1,49 @@
+# requires: logging
+#
+# The same call, six machines, six answers. Nothing in this scenario names a
+# path, a host or a service, which is the rule being tested: the code that logs
+# does not choose the rung, and the same program on two machines lands in two
+# different places without changing a line.
+#
+# `auto` and `write` are deliberately different questions. `auto` reports the
+# rung the machine's configuration selects; `write` reports where one record
+# actually landed. A configured service that nothing is listening on is still
+# the rung, and every record it takes goes below it -- which is why a degraded
+# service must not be reported as a degraded configuration.
+machine none
+auto A
+separation A
+write A
+default
+machine file
+auto B
+write B
+default
+machine service+file
+auto C
+write C
+machine deaf+file
+auto D
+write D
+machine unwritable
+auto E
+write E
+machine deaf
+auto F
+write F
+
+# expect 2: ok tier=discard [LOG-S3]
+# expect 3: ok sep=none [LOG-P1]
+# expect 4: ok where=discard [LOG-S3]
+# expect 5: ok out=stderr [LOG-S8]
+# expect 7: ok tier=file [LOG-S1] [LOG-S2]
+# expect 8: ok where=file [LOG-S2]
+# expect 9: ok out=sink [LOG-S8]
+# expect 11: ok tier=service [LOG-S1] [LOG-S2]
+# expect 12: ok where=service [LOG-S2]
+# expect 14: ok tier=service
+# expect 15: ok where=file [LOG-S5]
+# expect 17: ok tier=discard [LOG-S4]
+# expect 18: ok where=discard [LOG-S4]
+# expect 20: ok tier=service
+# expect 21: ok where=discard [LOG-S5]

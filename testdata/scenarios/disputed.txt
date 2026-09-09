@@ -1,0 +1,30 @@
+# requires: logging
+#
+# A lie is evidence, and deleting it destroys the only signal worth alerting on.
+# A process claiming to be the init system while the kernel reports an ordinary
+# account running an ordinary binary is the interesting case, and it is only
+# expressible because both halves stayed on the record.
+#
+# The third record is the other absence: a platform whose attester cannot
+# answer. The line must say that nothing could be established rather than
+# arriving unattributed for an unknown reason -- a reader cannot tell "nobody
+# checked" from "the check failed" unless the record says which.
+record R 0
+attest R so_peercred
+disputed R
+record S 0
+attest S so_peercred contradicts
+chain S
+disputed S
+record T 0
+attest T none
+chain T
+keys T
+author T
+
+# expect 3: ok disputed=no [LOG-I10]
+# expect 6: ok 0:self:claimed 1:so_peercred:verified [LOG-I4]
+# expect 7: ok disputed=yes [LOG-I10]
+# expect 10: ok 0:self:claimed [LOG-I12]
+# expect 11: ok logging.peer_error [LOG-I12]
+# expect 12: no-answer unattributed [LOG-I9]

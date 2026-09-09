@@ -1,0 +1,18 @@
+# requires: logging
+#
+# These lines are the interface between programs that were not built together,
+# so the version is checked on read rather than inferred from the fields that
+# happen to parse. A reader meeting a schema it does not understand has no way
+# to know which of the fields it recognises still mean what they meant, and a
+# newer writer must not be silently misread by an older reader.
+#
+# Zero is here because it is the value a record acquires when a writer forgot to
+# set the field, and a reader that treats absent as "the version I know" has
+# turned the check off for exactly the writer most likely to be wrong.
+decode 1
+decode 2
+decode 0
+
+# expect 1: ok [LOG-R2]
+# expect 2: refused schema=2 [LOG-R2]
+# expect 3: refused schema=0 [LOG-R2]
