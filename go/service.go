@@ -8,22 +8,18 @@ import (
 	"time"
 )
 
-// EnvService points at a logging service to forward to. A local socket path on
-// Linux/macOS; on Windows an AF_UNIX path works too, with the caveat in
-// PeerOf.
+// EnvService points at a logging service to forward to: a local socket path.
 const EnvService = "ABSTRACTION_LOG_SERVICE"
 
 // ServiceSink forwards records to a service over a local socket.
 //
-// The socket is the point, and a file would not do. When a record arrives this
-// way the receiving end can ask the KERNEL who sent it, and get an answer the
-// sender cannot influence. That is the difference between logs that can be
-// attributed and logs that can be separated.
+// The socket is the point: the receiving end can ask the kernel who sent a
+// record and get an answer the sender cannot influence. That is the difference
+// between logs that can be attributed and logs that can be separated.
 //
-// One record per write, newline framed, same bytes as the file sink. A service
-// that dies mid-stream loses at most the line in flight, and a reader tailing
-// the service's own output cannot tell the two sinks apart — which is what makes
-// the tiers substitutable.
+// One record per write, newline framed, the same bytes as the file sink, and
+// the chain goes as it is. A sink cannot tell a stamp its own service made
+// from one a hostile writer attached; the receiver can, and does.
 type ServiceSink struct {
 	addr string
 
@@ -31,13 +27,12 @@ type ServiceSink struct {
 	conn net.Conn
 
 	// Fallback receives records when the service is unreachable. Logging must
-	// not fail the caller and must not block it, so an absent service degrades
-	// to the next tier rather than to an error.
+	// not fail the caller and must not block it.
 	Fallback Sink
 
-	// Timeout bounds a single write. A wedged service must not stall the program
-	// that is logging to it — the most likely moment to be logging heavily is
-	// the moment something is already going wrong.
+	// Timeout bounds a single write. A wedged service must not stall the
+	// program logging to it — the moment a program is logging heavily is the
+	// moment something is already going wrong.
 	Timeout time.Duration
 }
 
@@ -51,12 +46,6 @@ func NewServiceSink(addr string, fallback Sink) *ServiceSink {
 func (s *ServiceSink) Separation() Separation { return SeparationPeer }
 
 func (s *ServiceSink) Write(r Record) error {
-	// A client sends its claim and nothing else. Stripping any verified
-	// attestation it tried to include is what stops the mechanism being theatre:
-	// otherwise the sender would be asserting its own identity again, in a field
-	// labelled as though someone else had checked.
-	r.Identity = stripVerified(r.Identity)
-
 	b, err := r.Encode()
 	if err != nil {
 		return err
@@ -79,8 +68,8 @@ func (s *ServiceSink) send(b []byte) error {
 	}
 	s.conn.SetWriteDeadline(time.Now().Add(s.timeout()))
 	if _, err := s.conn.Write(b); err != nil {
-		// One reconnect, then give up to the fallback. The service restarting
-		// is ordinary; retrying forever inside a caller's log statement is not.
+		// One reconnect, then the fallback. A service restarting is ordinary;
+		// retrying forever inside a caller's log statement is not.
 		s.conn.Close()
 		s.conn = nil
 		return err
@@ -106,16 +95,9 @@ func (s *ServiceSink) Close() error {
 	return nil
 }
 
-// Auto picks the best sink this machine actually has, and it is the same
-// delegation chain the download layer uses:
-//
-//	a service, if one is configured and reachable   → identity is a fact
-//	a file, if one is configured                    → identity is filesystem ownership
-//	nothing                                         → a working no-op
-//
-// Nothing above this call chooses. An application says "log", and where that
-// goes is a property of the machine it is running on — the same argument that
-// says a caller does not get to pick the NAS.
+// Auto picks the best sink this machine has: a service if one is configured,
+// a file if one is configured, else a working no-op. Nothing above this call
+// chooses; where a record goes is a property of the machine.
 func Auto(program string) Sink {
 	file := FromEnv()
 	if addr := os.Getenv(EnvService); addr != "" {
@@ -125,28 +107,30 @@ func Auto(program string) Sink {
 }
 
 // Server is the receiving half: it accepts connections, asks the kernel who is
-// on the other end, and APPENDS that to the identity chain of every record from
-// that connection.
-//
-// Appends, not overwrites. What the client claimed stays on the record even when
-// the kernel contradicts it, because the contradiction is the interesting signal
-// and this is not the layer with enough context to adjudicate it. What the
-// client is not allowed to do is arrive with a verified attestation already
-// attached — those are stripped, because only the party that ran a check may
-// record that the check passed.
+// on the other end, and appends that to the chain of every record from that
+// connection. What arrived stays on the record, a forged stamp included; what
+// it is worth is for Record.Assess, with the stamp this server appended as
+// the anchor.
 type Server struct {
-	// Out receives attested records, and is handed what the kernel said so it can
-	// route on a fact. Give it a per-user sink to get real separation rather than
-	// a shared file with better labels.
+	// Out receives attested records and is handed what the kernel said, so it
+	// can route on a fact. A per-user sink here is real separation.
 	Out func(Attestation) Sink
 
-	ln net.Listener
-	wg sync.WaitGroup
+	// KeyID and Key, when set, bind every stamp this server appends to the
+	// record it stamped, so a reader holding the key can verify the stamp
+	// wherever the record went afterwards.
+	KeyID string
+	Key   []byte
+
+	ln    net.Listener
+	wg    sync.WaitGroup
+	mu    sync.Mutex
+	conns map[net.Conn]struct{}
 }
 
-// Listen starts a server on a unix socket. The socket file is removed first: a
-// stale socket from a killed process refuses bind, and refusing to start because
-// of the corpse of a previous run is not useful behaviour for a logging daemon.
+// Listen starts a server on a unix socket. A stale socket file from a killed
+// process is removed first; refusing to start over a corpse is not useful
+// behaviour for a logging daemon.
 func (s *Server) Listen(addr string) error {
 	os.Remove(addr)
 	ln, err := net.Listen("unix", addr)
@@ -154,8 +138,7 @@ func (s *Server) Listen(addr string) error {
 		return err
 	}
 	// Anyone may connect. Separation comes from what the kernel reports about
-	// each connection, not from who is allowed to open one — the whole design
-	// assumes untrusted local callers.
+	// each connection, not from who may open one.
 	os.Chmod(addr, 0o777)
 	s.ln = ln
 	return nil
@@ -168,17 +151,40 @@ func (s *Server) Serve() error {
 			return err
 		}
 		peer, perr := PeerOf(c)
+		s.track(c, true)
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
+			defer s.track(c, false)
 			defer c.Close()
 			s.handle(c, peer, perr)
 		}()
 	}
 }
 
+func (s *Server) track(c net.Conn, on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conns == nil {
+		s.conns = map[net.Conn]struct{}{}
+	}
+	if on {
+		s.conns[c] = struct{}{}
+	} else {
+		delete(s.conns, c)
+	}
+}
+
+// Close stops listening and closes every connection it accepted. A client
+// that keeps its connection open is the normal case, so waiting for it to
+// hang up would be waiting for nothing.
 func (s *Server) Close() error {
 	err := s.ln.Close()
+	s.mu.Lock()
+	for c := range s.conns {
+		c.Close()
+	}
+	s.mu.Unlock()
 	s.wg.Wait()
 	return err
 }
@@ -195,25 +201,29 @@ func (s *Server) handle(c net.Conn, peer Attestation, perr error) {
 		if err != nil {
 			continue // one malformed line must not drop a connection
 		}
-		// Append, never replace. The claim stays on the record even when it is
-		// contradicted, because a lie is evidence and this is not the layer with
-		// enough context to adjudicate it.
-		rec.Identity = stripVerified(rec.Identity)
-		if perr == nil {
-			stamp := peer
-			// Hop counts from the emitter, so a relay chain reads in order.
-			stamp.Hop = len(rec.Identity)
-			rec.Identity = append(rec.Identity, stamp)
-		} else {
-			// The kernel would not say. Record that explicitly rather than leaving
-			// the line looking unattributed for an unknown reason.
-			if rec.Attrs == nil {
-				rec.Attrs = map[string]string{}
-			}
-			rec.Attrs["logging.peer_error"] = perr.Error()
-		}
-		out.Write(rec)
+		out.Write(s.Accept(rec, peer, perr))
 	}
+}
+
+// Accept applies what this service does to one record: append what the
+// platform established about the immediate peer as a new hop, or record why
+// it could not. Nothing is removed and nothing is rewritten. The stamp is the
+// last hop of the result, and is the anchor to assess the record from.
+func (s *Server) Accept(rec Record, peer Attestation, perr error) Record {
+	if perr != nil {
+		if rec.Attrs == nil {
+			rec.Attrs = map[string]string{}
+		}
+		rec.Attrs["logging.peer_error"] = perr.Error()
+		return rec
+	}
+	stamp := peer
+	stamp.Hop = len(rec.Identity)
+	rec.Identity = append(append(Identity(nil), rec.Identity...), stamp)
+	if s.Key != nil {
+		rec.Bind(stamp.Hop, s.KeyID, s.Key)
+	}
+	return rec
 }
 
 func (s *Server) Addr() string {
@@ -224,19 +234,3 @@ func (s *Server) Addr() string {
 }
 
 var errNoPeerCreds = fmt.Errorf("logging: peer credentials are not available on this platform")
-
-// stripVerified removes attestations a sender is not entitled to make.
-//
-// Only the party that ran a check may record that the check passed. Without
-// this, "verified" would mean "the sender wrote true", and the field would be
-// worse than useless — it would look like assurance.
-func stripVerified(id Identity) Identity {
-	out := id[:0:0]
-	for _, a := range id {
-		if a.Verified {
-			continue
-		}
-		out = append(out, a)
-	}
-	return out
-}

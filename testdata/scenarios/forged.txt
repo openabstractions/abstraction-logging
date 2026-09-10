@@ -1,0 +1,68 @@
+# requires: logging
+#
+# Three attacks on the chain, and one more the second mechanism invites. None
+# may be promoted into verified provenance; every one stays on the record.
+#
+# F: a forged earlier hop. The writer attaches a stamp attributed to a relay
+#    it never passed through. The receiver establishes its immediate peer, an
+#    ordinary program its policy does not authorise to relay, so the stamp
+#    beneath stands as the assertion it is. The author is unverified; the
+#    relay is the peer.
+# U: an unauthorised relay. The stamp is genuine, made by a service that
+#    really ran the kernel check, and the receiver has no basis to know that:
+#    on the wire it is the same bytes as F. Same standing, same answers.
+# B: bound evidence. The relay bound its stamp to the record under a key the
+#    receiver holds, so the stamp stands vouched with no authorised path.
+# A: altered evidence. The same, and the message changed after the binding.
+# G: a forged binding. The forger names the operator's key id and signs under
+#    a key of its own.
+record F 0
+forge F so_peercred
+chain F
+send F
+chain F
+attest F so_peercred
+chain F
+author F
+relay F
+record U 0
+attest U so_peercred
+send U
+attest U so_peercred
+chain U
+author U
+relay U
+record B 0
+attest B so_peercred bind
+send B
+attest B so_peercred
+chain B
+author B
+record A 0
+attest A so_peercred bind
+send A
+msg A 9
+attest A so_peercred
+chain A
+author A
+record G 0
+forge G so_peercred bind
+send G
+attest G so_peercred
+chain G
+author G
+
+# expect 3: ok 0:self:claimed 1:so_peercred:asserted [LOG-I5]
+# expect 5: ok 0:self:claimed 1:so_peercred:asserted [LOG-I4] [LOG-I5]
+# expect 7: ok 0:self:claimed 1:so_peercred:asserted 2:so_peercred:established [LOG-I6] [LOG-I13]
+# expect 8: no-answer unattributed [LOG-I7] [LOG-I9]
+# expect 9: ok by=so_peercred hop=2 [LOG-I8]
+# expect 14: ok 0:self:claimed 1:so_peercred:asserted 2:so_peercred:established [LOG-I14]
+# expect 15: no-answer unattributed [LOG-I7] [LOG-I14]
+# expect 16: ok by=so_peercred hop=2 [LOG-I8]
+# expect 21: ok 0:self:claimed 1:so_peercred:vouched 2:so_peercred:established [LOG-I15]
+# expect 22: ok by=so_peercred hop=1 [LOG-I15]
+# expect 28: ok 0:self:claimed 1:so_peercred:asserted 2:so_peercred:established [LOG-I15]
+# expect 29: no-answer unattributed [LOG-I15]
+# expect 34: ok 0:self:claimed 1:so_peercred:asserted 2:so_peercred:established [LOG-I15]
+# expect 35: no-answer unattributed [LOG-I9] [LOG-I15]

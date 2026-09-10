@@ -5,10 +5,11 @@
 # than halves of two. A record too big for that cap has three possible fates and
 # only one of them keeps the property and the evidence.
 #
-# `over` counts lines longer than the cap and `marked` counts lines carrying the
-# shrink mark. The exact length of a shrunk line is not asserted, and must not
-# be: two implementations shrinking by different amounts both keep the rule, and
-# pinning the number would make one of them wrong for no reason.
+# `over` counts lines longer than the cap, `marked` counts lines carrying the
+# shrink mark, and `torn` counts lines carrying a split character. The exact
+# length of a shrunk line is not asserted, and must not be: two implementations
+# shrinking by different amounts both keep the rule, and pinning the number
+# would make one of them wrong for no reason.
 machine file
 auto A
 cap A 512
@@ -20,7 +21,51 @@ record S 0
 write A S
 held A
 
+# The message is not the only thing that can be too long. A record whose
+# retained metadata alone exceeds the cap is the case with no answer if
+# shrinking only ever shortens the message: a one-character message cannot get
+# shorter by halving, and an empty one cannot get shorter at all.
+record T 0
+job T 1024
+msg T 1
+write A T
+held A
+msg T 0
+write A T
+held A
+
+# `wide` makes the message out of two-byte characters, so a shrink that slices by
+# byte index has somewhere to cut one in half. 511 of them is 1022 bytes, and
+# every halving of 1022 is an odd byte index -- 511, 255, 127 and so on down --
+# so an implementation that halves by bytes splits a character on any machine,
+# whatever its framing costs. A line is UTF-8 or it is not the format this layer
+# claims to write.
+machine file
+auto B
+cap B 200
+record W 0
+msg W 511 wide
+write B W
+held B
+
+# A cap below the smallest record this layer can encode is refused, and the file
+# stays empty. Writing anyway would break the interleaving property for every
+# other writer sharing the file.
+machine file
+auto C
+cap C 32
+write C S
+held C
+
 # expect 6: ok where=file [LOG-S6]
-# expect 7: ok lines=1 over=0 marked=1 [LOG-S6]
+# expect 7: ok lines=1 over=0 marked=1 torn=0 [LOG-S6]
 # expect 9: ok where=file
-# expect 10: ok lines=2 over=0 marked=1 [LOG-S6]
+# expect 10: ok lines=2 over=0 marked=1 torn=0 [LOG-S6]
+# expect 14: ok where=file [LOG-S9]
+# expect 15: ok lines=3 over=0 marked=2 torn=0 [LOG-S9]
+# expect 17: ok where=file [LOG-S9]
+# expect 18: ok lines=4 over=0 marked=3 torn=0 [LOG-S9]
+# expect 24: ok where=file [LOG-R8]
+# expect 25: ok lines=1 over=0 marked=1 torn=0 [LOG-R8]
+# expect 29: refused [LOG-S10]
+# expect 30: ok lines=0 over=0 marked=0 torn=0 [LOG-S10]

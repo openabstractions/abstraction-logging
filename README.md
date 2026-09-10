@@ -1,5 +1,8 @@
 # abstraction-logging
 
+**In development.** A tag exists (`go/v0.2.0`) but no conformance scenario
+covers this layer yet, and the API carries no stability promise.
+
 A log record leaves the process that wrote it, in one encoding every language
 reads, carrying who wrote it and how strongly that was proven.
 
@@ -33,7 +36,7 @@ layer.
 
 - **Go.** `go get github.com/openabstractions/abstraction-logging/go`. The
   module path ends in `/go`; the package is `logging`, so import it with an
-  explicit alias. The newest tag is `go/v0.1.0`; `@main` is the tree as it
+  explicit alias. The newest tag is `go/v0.2.0`; `@main` is the tree as it
   stands.
 - **Python, C++.** None.
 

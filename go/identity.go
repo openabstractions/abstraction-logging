@@ -1,66 +1,68 @@
 package logging
 
-import "os"
+import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"os"
+)
 
-// Who is talking, and who says so.
+// Identity is an ordered chain, one attestation per hop, counting from the
+// writer. Hop 0 is the writer's own claim about itself; hop k is what the k-th
+// receiver established about the party that handed it the record.
 //
-// The first design here had two fields: Source, which the writer filled in, and
-// Peer, which a service filled in from the kernel. That was better than one
-// field and still wrong, because it assumed there are exactly two answers and
-// that the second one settles it.
+// Every hop appends and nothing is removed, including a claim this layer
+// believes to be false: a lie is evidence, and the reader has the context to
+// judge it that the writer does not.
+type Identity []Attestation
+
+// Attestation is one party's statement about one party.
 //
-// There are as many answers as there are things willing to vouch, and a relay
-// makes the difference matter. Send a record client → local service → NAS
-// aggregator and the aggregator's SO_PEERCRED identifies THE LOCAL SERVICE, not
-// the original process. With one verified field the second stamp overwrites the
-// first and the real author disappears. With a chain, both are on the record and
-// a reader can see that the kernel vouched for the client at hop one and for the
-// relay at hop two — which is the truth, and is not expressible any other way.
-//
-// So identity is a list. Every hop appends what it can establish and destroys
-// nothing, including claims it believes to be false: a lie is evidence, and the
-// place to resolve it is the reader, which has context that the writer does not.
+// Verified is the appending party's own assertion that it established the
+// subject's identity rather than copied it. On the wire that assertion is the
+// same bytes whether it is true or forged, so a receiver never reads trust out
+// of it: what a hop is worth to a receiver is its Standing, computed by Assess
+// from something the receiver holds outside the record.
 type Attestation struct {
-	// By names the mechanism, not the party. "self" for the writer's own claim;
-	// otherwise the system facility that answered — "so_peercred", "file_owner",
-	// "peer_cert". A reader that does not recognise a mechanism must treat it as
-	// unverified rather than guessing.
-	By string `json:"by"`
-
-	// Verified is true when something other than the subject established this.
-	// A self attestation is never verified, by definition; it is recorded
-	// because it is usually right and always informative.
-	Verified bool `json:"verified"`
-
-	// At which hop, counting from the emitter. Hop 0 is the process that wrote
-	// the record. This is what makes a relay chain readable rather than a pile.
-	Hop int `json:"hop"`
+	// By names the mechanism that answered, never the party: "self" for the
+	// writer's own claim, otherwise the system facility — "so_peercred",
+	// "file_owner", "peer_cert". An unrecognised mechanism is unverified.
+	By       string `json:"by"`
+	Verified bool   `json:"verified"`
+	Hop      int    `json:"hop"`
 
 	Program string `json:"program,omitempty"`
 	Host    string `json:"host,omitempty"`
 	User    string `json:"user,omitempty"`
 	Exe     string `json:"exe,omitempty"`
 
-	// UID, GID and PID use -1 for "not established" so that zero keeps its real
-	// meaning. uid 0 is root, and a provider that could not determine a uid must
-	// not be indistinguishable from one that determined root.
+	// -1 is not established, so that 0 keeps its real meaning: uid 0 is the
+	// superuser and a provider that could not determine a uid must not look
+	// like one that determined root.
 	UID int `json:"uid"`
 	GID int `json:"gid"`
 	PID int `json:"pid"`
+
+	// Key and MAC bind this attestation to the record it was made about, under
+	// a key the operator gave the party that made it. A reader holding the
+	// same key can verify the stamp without trusting anything the record
+	// passed through afterwards. See Record.Bind.
+	Key string `json:"key,omitempty"`
+	MAC string `json:"mac,omitempty"`
 }
 
-// Unknown is what an unestablished numeric identity looks like.
 const Unknown = -1
 
-// BySelf is the mechanism name for an unverified self-description.
 const BySelf = "self"
 
 // ByPeerCred is the kernel answering about a unix socket peer.
 const ByPeerCred = "so_peercred"
 
-// Claim builds the writer's own description of itself. It is hop 0, it is never
-// verified, and it is worth recording anyway: almost nothing is lying, and when
-// something is, the claim is the evidence.
+// Claim is the writer's own description of itself: hop 0, never verified,
+// recorded because almost nothing is lying and when something is, the claim is
+// the evidence.
 func Claim(program string) Attestation {
 	host, _ := os.Hostname()
 	return Attestation{
@@ -70,10 +72,6 @@ func Claim(program string) Attestation {
 	}
 }
 
-// Identity is the ordered chain on a record.
-type Identity []Attestation
-
-// Claimed returns the writer's own description, if it made one.
 func (id Identity) Claimed() (Attestation, bool) {
 	for _, a := range id {
 		if a.By == BySelf && a.Hop == 0 {
@@ -83,41 +81,6 @@ func (id Identity) Claimed() (Attestation, bool) {
 	return Attestation{}, false
 }
 
-// Verified returns the earliest verified attestation — the one closest to the
-// actual author.
-//
-// Earliest, not strongest or latest, and that is the whole point of keeping the
-// chain. In a relay the LAST verified attestation describes the relay; the first
-// describes whoever originally spoke. A reader asking "who wrote this" wants the
-// first, and a reader asking "who handed it to me" wants the last.
-func (id Identity) Verified() (Attestation, bool) {
-	best := Attestation{Hop: -1}
-	found := false
-	for _, a := range id {
-		if !a.Verified {
-			continue
-		}
-		if !found || a.Hop < best.Hop {
-			best, found = a, true
-		}
-	}
-	return best, found
-}
-
-// Relay returns the last verified attestation: whoever most recently handed this
-// record on.
-func (id Identity) Relay() (Attestation, bool) {
-	best := Attestation{Hop: -1}
-	found := false
-	for _, a := range id {
-		if a.Verified && a.Hop >= best.Hop {
-			best, found = a, true
-		}
-	}
-	return best, found
-}
-
-// By returns the attestation from a named mechanism.
 func (id Identity) By(mechanism string) (Attestation, bool) {
 	for _, a := range id {
 		if a.By == mechanism {
@@ -127,88 +90,233 @@ func (id Identity) By(mechanism string) (Attestation, bool) {
 	return Attestation{}, false
 }
 
-// Disputed reports whether anything verified contradicts what was claimed.
+// Standing is what one hop is worth to the party assessing the record, as
+// distinct from what the hop says about itself.
 //
-// This is the signal worth alerting on, and it only exists because nothing is
-// discarded. A process claiming to be systemd while the kernel says it is uid
-// 1024 running /usr/bin/curl is the interesting case, and both halves have to
-// survive for anyone to notice.
-func (id Identity) Disputed() bool {
-	claim, ok := id.Claimed()
+// The ancestor is RFC 8601's Authentication-Results: a receiver records the
+// checks it ran itself, and a result that arrived from outside its boundary is
+// a claim however it is labelled. Claimed and Asserted read the wire; Vouched
+// and Established are the assessor's own conclusion.
+type Standing int
+
+const (
+	// Claimed: the hop asserts no verification. The writer's own claim.
+	Claimed Standing = iota
+	// Asserted: the hop asserts it was verified, and nothing the assessor
+	// trusts stands behind that assertion. A forged stamp and a genuine stamp
+	// from an unauthorised relay both land here.
+	Asserted
+	// Vouched: verified through an explicit mechanism the assessor holds — a
+	// trusted path through an authorised relay, or a binding under a key.
+	Vouched
+	// Established: the assessor made this attestation itself.
+	Established
+)
+
+func (s Standing) String() string {
+	switch s {
+	case Asserted:
+		return "asserted"
+	case Vouched:
+		return "vouched"
+	case Established:
+		return "established"
+	default:
+		return "claimed"
+	}
+}
+
+// Policy is what an assessor is prepared to trust beyond what it established
+// itself. The zero Policy trusts nothing beyond the anchor.
+type Policy struct {
+	// Relay reports whether a party, as a trusted hop describes it, is
+	// authorised to attest the hops beneath it. It is the cA basic constraint
+	// of RFC 5280 §4.2.1.9: being on the path is not the same as being allowed
+	// to vouch for the next link.
+	Relay func(Attestation) bool
+
+	// Keys are the bindings this assessor accepts, by key id. Holding a key is
+	// the authorisation: a stamp bound under it stands Vouched with no path.
+	Keys map[string][]byte
+}
+
+// Provenance is a record's chain with each hop's standing beside it.
+type Provenance struct {
+	Chain    Identity
+	Standing []Standing
+}
+
+// Assess computes what each hop is worth to the caller.
+//
+// The anchor is the attestation the caller established itself, supplied here
+// and never read from the record — RFC 5280 §6.1.1's trust anchor, delivered
+// out of band. A receiving service passes the stamp it just appended; a reader
+// of a file no service wrote passes nil and gets claims back, which is what a
+// file can attest.
+//
+// From the anchor the path is walked downward, RFC 5280 §6 shape: a hop stands
+// Vouched when the trusted hop above it describes a party the policy
+// authorises to relay, or when the hop is bound under a key the policy holds.
+// Everything else stands as what the wire says, and the wire cannot say more
+// than Asserted.
+func (r Record) Assess(anchor *Attestation, p Policy) Provenance {
+	id := r.Identity
+	n := len(id)
+	st := make([]Standing, n)
+	for k := n - 1; k >= 0; k-- {
+		a := id[k]
+		switch {
+		case a.By == BySelf && a.Verified:
+			st[k] = Asserted
+		case a.By == BySelf || !a.Verified:
+			st[k] = Claimed
+		case k == n-1 && anchor != nil && sameStamp(a, *anchor):
+			st[k] = Established
+		case a.MAC != "" && p.Keys[a.Key] != nil && r.bindingHolds(k, p.Keys[a.Key]):
+			st[k] = Vouched
+		case k+1 < n && st[k+1] >= Vouched && p.Relay != nil && p.Relay(id[k+1]):
+			st[k] = Vouched
+		default:
+			st[k] = Asserted
+		}
+	}
+	return Provenance{Chain: id, Standing: st}
+}
+
+// sameStamp compares what was established, not where it sits: the hop is the
+// record's position and the binding is added after the stamp, so an anchor
+// handed over before either is still the same stamp.
+func sameStamp(a, b Attestation) bool {
+	a.Hop, a.Key, a.MAC = 0, "", ""
+	b.Hop, b.Key, b.MAC = 0, "", ""
+	return a == b
+}
+
+// Author is the attestation about the writer — hop 1, the first receiver's
+// statement about the party that handed it the record — and only when the
+// path from the anchor reaches it. If only the immediate peer is established,
+// the author is unverified: the earliest hop asserting verification is not the
+// author, it is a claim about the author.
+func (pv Provenance) Author() (Attestation, bool) {
+	if len(pv.Chain) > 1 && pv.Standing[1] >= Vouched {
+		return pv.Chain[1], true
+	}
+	return Attestation{}, false
+}
+
+// Relay is the assessor's immediate peer: the hop it established itself.
+func (pv Provenance) Relay() (Attestation, bool) {
+	n := len(pv.Chain)
+	if n > 0 && pv.Standing[n-1] == Established {
+		return pv.Chain[n-1], true
+	}
+	return Attestation{}, false
+}
+
+// Disputed reports whether the writer's claim is contradicted by a trusted
+// attestation about the writer — the same subject. A relay carrying a
+// different pid or host from the writer is expected, not a dispute.
+func (pv Provenance) Disputed() bool {
+	claim, ok := pv.Chain.Claimed()
 	if !ok {
 		return false
 	}
-	for _, a := range id {
-		if !a.Verified {
-			continue
-		}
-		if a.Host != "" && claim.Host != "" && a.Host != claim.Host {
-			return true
-		}
-		if a.PID != Unknown && claim.PID != Unknown && a.PID != claim.PID {
-			return true
-		}
+	about, ok := pv.Author()
+	if !ok {
+		return false
 	}
-	return false
+	if about.Host != "" && claim.Host != "" && about.Host != claim.Host {
+		return true
+	}
+	return about.PID != Unknown && claim.PID != Unknown && about.PID != claim.PID
 }
 
-// Trusted reports whether anything other than the writer vouched for this.
-func (r Record) Trusted() bool {
-	_, ok := r.Identity.Verified()
-	return ok
+// Bind ties the attestation at hop to this record under a key, so that a
+// reader holding the key can verify it independently of the path the record
+// takes afterwards.
+//
+// The bound bytes are the record with its chain cut at hop, hop's own MAC
+// empty, rendered as canonical JSON. DKIM (RFC 6376) is the ancestor; the
+// divergence is that the key is symmetric, HMAC-SHA256, because every platform
+// furnishes it and the assessor that holds the key is the trust root anyway.
+// A verifier can therefore forge what it verifies, and this is not the
+// mechanism for a reader that must not be trusted with that.
+func (r *Record) Bind(hop int, keyID string, key []byte) error {
+	r.Identity[hop].Key = keyID
+	r.Identity[hop].MAC = ""
+	b, err := r.bound(hop)
+	if err != nil {
+		return err
+	}
+	r.Identity[hop].MAC = mac(b, key)
+	return nil
 }
 
-// An Attester answers "who is on the other end of this?" — and every useful
-// implementation of it is one the operating system already operates.
-//
-// This package does not mint identity. It has no accounts, no tokens, no
-// registration and no secrets, and adding any of them would be a mistake: an
-// identity this project invented would have to be defended by this project, and
-// would be exactly as trustworthy as a self-declared field. The whole value of a
-// verified attestation is that something with more authority than us made it.
-//
-// So the bindings are all system mechanisms:
-//
-//	SO_PEERCRED / LOCAL_PEERCRED   the kernel, on a unix socket    (peer_linux.go)
-//	named pipe client token        the Windows LSA                 (not written)
-//	file ownership + mode          the filesystem                  (FileSink)
-//	container uid mapping          the runtime                     (inherited)
-//
-// The same relationship the download layer has with BITS: the good
-// implementation already exists, is maintained by people with more leverage than
-// us, and the job is to expose it behind one interface rather than reimplement
-// it. Where the OS offers nothing, the honest answer is an error — see
-// errNoPeerCreds — not a plausible-looking guess.
+func (r Record) bindingHolds(hop int, key []byte) bool {
+	b, err := r.bound(hop)
+	if err != nil {
+		return false
+	}
+	return hmac.Equal([]byte(mac(b, key)), []byte(r.Identity[hop].MAC))
+}
+
+func mac(b, key []byte) string {
+	h := hmac.New(sha256.New, key)
+	h.Write(b)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// bound renders the record as it stood when hop was appended: keys sorted, no
+// HTML escaping, no trailing newline. That is RFC 8785's shape for the ASCII
+// this layer writes; the string escaping beyond ASCII is unproven against a
+// second language.
+func (r Record) bound(hop int) ([]byte, error) {
+	if r.Schema == 0 {
+		r.Schema = SchemaVersion
+	}
+	r.Identity = append(Identity(nil), r.Identity[:hop+1]...)
+	r.Identity[hop].MAC = ""
+	b, err := json.Marshal(r)
+	if err != nil {
+		return nil, err
+	}
+	var v any
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	if err := d.Decode(&v); err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	e := json.NewEncoder(&out)
+	e.SetEscapeHTML(false)
+	if err := e.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(out.Bytes(), []byte("\n")), nil
+}
+
+// An Attester answers "who is on the other end of this?", and every useful
+// implementation is one the operating system already operates: SO_PEERCRED on
+// a unix socket, a named pipe client token, file ownership, a container's uid
+// mapping. This package mints no identity. Where the OS offers nothing the
+// answer is an error, never a plausible guess.
 type Attester interface {
-	// Attest reports what the system says about the peer of this connection,
-	// as an attestation at the given hop. It must fail rather than approximate:
-	// an inferred identity is a claim wearing a better hat.
 	Attest(conn any, hop int) (Attestation, error)
 }
 
-// Separation is what a sink can actually enforce, and the three answers are very
-// different. Naming them stops "the service will handle it" from standing in for
-// a design.
+// Separation is what a sink can actually enforce. Naming the three answers
+// stops "the service will handle it" from standing in for a design.
 type Separation int
 
 const (
-	// SeparationNone: one file everyone writes to. Attribution is by claim only.
-	// Fine for one user's own machine, useless the moment two accounts share.
+	// SeparationNone: one file everyone writes. Attribution is by claim only.
 	SeparationNone Separation = iota
-
-	// SeparationOwner: one file per user, and the OS enforces who may write
-	// which. Identity comes from filesystem ownership rather than from the
-	// record, so a user cannot forge another user's lines — they cannot open the
-	// file. Needs no service and no daemon.
-	//
-	// What it CANNOT do is separate two applications run by the same user. They
-	// have identical credentials as far as the filesystem is concerned.
+	// SeparationOwner: one file per user, enforced by the filesystem. Cannot
+	// separate two applications run by one user.
 	SeparationOwner
-
-	// SeparationPeer: a service accepts records over a local socket and attests
-	// each with kernel-reported uid, gid, pid and executable. The only level at
-	// which "which app" is a fact, and the only one that survives a hostile
-	// local process.
+	// SeparationPeer: a service attests each record with what the kernel
+	// reported about the connection. The only level at which "which app" is
+	// a fact.
 	SeparationPeer
 )
 
@@ -223,14 +331,12 @@ func (s Separation) String() string {
 	}
 }
 
-// Separated is implemented by sinks that can say what they actually enforce.
-// A sink that cannot answer is assumed to enforce nothing, which is the safe
-// reading.
+// Separated is implemented by sinks that can say what they enforce. A sink
+// that cannot answer is assumed to enforce nothing.
 type Separated interface {
 	Separation() Separation
 }
 
-// SeparationOf reports what a sink enforces.
 func SeparationOf(s Sink) Separation {
 	if sep, ok := s.(Separated); ok {
 		return sep.Separation()

@@ -71,17 +71,20 @@ func TestSlogGoesToTheSinkUnchanged(t *testing.T) {
 	}
 }
 
-// Nothing vouched for these lines, and the record must say so rather than
-// leaving a reader to assume the Source field means something.
+// Nothing vouched for these lines. A reader of a file no service wrote has no
+// anchor, and with no anchor every hop is a claim.
 func TestFileRecordsAreUntrusted(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "log.jsonl")
 	sink, _ := OpenFileSink(path)
 	slog.New(NewHandler(sink, &Options{Program: "anything"})).Info("hello")
 	sink.Close()
 
-	got := readAll(t, path)
-	if got[0].Trusted() {
-		t.Fatal("a record written straight to a file claims to be verified")
+	pv := readAll(t, path)[0].Assess(nil, Policy{})
+	if _, ok := pv.Author(); ok {
+		t.Fatal("a record written straight to a file has a verified author")
+	}
+	if _, ok := pv.Relay(); ok {
+		t.Fatal("a record written straight to a file has an established relay")
 	}
 }
 

@@ -5,10 +5,15 @@
 # account running an ordinary binary is the interesting case, and it is only
 # expressible because both halves stayed on the record.
 #
+# A dispute compares claims about one subject: the writer's claim against the
+# attestation about the writer, and only when that attestation stands. A relay
+# carrying a different pid from the writer is expected, not a dispute (chain
+# step 15), and a contradiction the receiver has no basis to trust is not one
+# either -- it is an unverified author, which is a different answer.
+#
 # The third record is the other absence: a platform whose attester cannot
 # answer. The line must say that nothing could be established rather than
-# arriving unattributed for an unknown reason -- a reader cannot tell "nobody
-# checked" from "the check failed" unless the record says which.
+# arriving unattributed for an unknown reason.
 record R 0
 attest R so_peercred
 disputed R
@@ -21,10 +26,24 @@ attest T none
 chain T
 keys T
 author T
+record V 0
+attest V so_peercred contradicts
+send V
+attest V so_peercred relay
+disputed V
+record X 0
+attest X so_peercred contradicts
+send X
+attest X so_peercred
+disputed X
+author X
 
 # expect 3: ok disputed=no [LOG-I10]
-# expect 6: ok 0:self:claimed 1:so_peercred:verified [LOG-I4]
+# expect 6: ok 0:self:claimed 1:so_peercred:established [LOG-I4]
 # expect 7: ok disputed=yes [LOG-I10]
 # expect 10: ok 0:self:claimed [LOG-I12]
 # expect 11: ok logging.peer_error [LOG-I12]
 # expect 12: no-answer unattributed [LOG-I9]
+# expect 17: ok disputed=yes [LOG-I10] [LOG-I14]
+# expect 22: ok disputed=no [LOG-I10]
+# expect 23: no-answer unattributed [LOG-I14]

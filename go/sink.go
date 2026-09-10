@@ -1,11 +1,14 @@
 package logging
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // A Sink is somewhere records go. It is the only interface in this package, and
@@ -34,8 +37,9 @@ type FileSink struct {
 
 	// MaxLine caps one encoded record. Beyond this the atomicity argument above
 	// stops holding and concurrent writers could interleave halves of two lines,
-	// producing a file that is neither valid JSON nor recoverable. Truncating
-	// the message is the honest failure: the line survives, marked.
+	// producing a file that is neither valid JSON nor recoverable. Shrinking the
+	// record is the honest failure: the line survives, marked. A cap too small
+	// for any record at all is ErrLineCap, and nothing is written.
 	MaxLine int
 }
 
@@ -81,33 +85,146 @@ func (s *FileSink) Write(r Record) error {
 	return err
 }
 
+// ErrLineCap reports that no record fits: the cap is smaller than the smallest
+// line this sink can encode, which is an instant, a level, a schema number and
+// the shrink mark. It is returned instead of writing, because a line over the
+// cap breaks the interleaving property for every other writer sharing the file,
+// and it is distinguishable from an I/O failure so a caller can tell a
+// misconfigured cap from a full disk.
+var ErrLineCap = errors.New("logging: line cap smaller than the smallest record")
+
 // truncated rebuilds an oversized record as a shorter one that says so. Dropping
 // the line would lose the very event most likely to matter — the one carrying a
 // giant error payload.
 func (s *FileSink) truncated(r Record, max int) ([]byte, error) {
+	stages, err := degraded(r)
+	if err != nil {
+		return nil, err
+	}
+	for _, over := range stages {
+		b, err := shrunk(over, max)
+		if err != nil {
+			return nil, err
+		}
+		if b != nil {
+			return b, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: cap %d", ErrLineCap, max)
+}
+
+// degraded is the ladder: the marked record, then the same record with one more
+// piece of retained metadata dropped at each step. It is finite, and every step
+// after the first narrows the frame strictly, so the shrink below cannot cycle.
+//
+// The first step may grow the record, because marking it costs bytes and an
+// unmarked shrunk line would be a lie. Every step after it is taken only when it
+// makes the frame strictly smaller: shedding a field to buy nothing loses
+// evidence for free.
+func degraded(r Record) ([]Record, error) {
 	over := r
 	over.Attrs = map[string]string{"logging.truncated": "true"}
 	if n := len(r.Attrs); n > 0 {
-		over.Attrs["logging.dropped_attrs"] = fmt.Sprint(n)
+		over.Attrs["logging.dropped_attrs"] = strconv.Itoa(n)
 	}
-	// Shrink the message until the whole line fits. Encoding is cheap and this
-	// path is rare.
-	msg := r.Msg
+	stages := []Record{over}
+	shed := func(next Record) error {
+		narrower, err := narrows(next, over)
+		if err != nil || !narrower {
+			return err
+		}
+		stages = append(stages, next)
+		over = next
+		return nil
+	}
+	if over.Job != "" {
+		next := over
+		next.Job = ""
+		next.Attrs = marked(over.Attrs, "logging.dropped_job", "true")
+		if err := shed(next); err != nil {
+			return nil, err
+		}
+	}
+	if len(over.Identity) > 0 {
+		next := over
+		next.Attrs = marked(over.Attrs, "logging.dropped_hops", strconv.Itoa(len(over.Identity)))
+		next.Identity = nil
+		if err := shed(next); err != nil {
+			return nil, err
+		}
+	}
+	return stages, nil
+}
+
+func marked(attrs map[string]string, key, value string) map[string]string {
+	next := make(map[string]string, len(attrs)+1)
+	for k, v := range attrs {
+		next[k] = v
+	}
+	next[key] = value
+	return next
+}
+
+// narrows compares frames — the encoded record without its message — so that the
+// comparison is about what the step shed rather than about how long the message
+// happens to be.
+func narrows(a, b Record) (bool, error) {
+	x, err := frame(a)
+	if err != nil {
+		return false, err
+	}
+	y, err := frame(b)
+	if err != nil {
+		return false, err
+	}
+	return x < y, nil
+}
+
+func frame(r Record) (int, error) {
+	r.Msg = ""
+	b, err := r.Encode()
+	if err != nil {
+		return 0, err
+	}
+	return len(b), nil
+}
+
+// shrunk halves the message until the line fits. It returns nil when even the
+// empty message does not fit inside this stage's frame, which is the caller's
+// signal to shed more metadata rather than to give up.
+func shrunk(over Record, max int) ([]byte, error) {
 	for {
-		over.Msg = msg
 		b, err := over.Encode()
 		if err != nil {
 			return nil, err
 		}
-		if len(b) <= max || msg == "" {
+		if len(b) <= max {
 			return b, nil
 		}
-		cut := len(msg) / 2
-		if cut < 1 {
-			cut = 1
+		if over.Msg == "" {
+			return nil, nil
 		}
-		msg = msg[:cut]
+		over.Msg = cut(over.Msg, len(over.Msg)/2)
 	}
+}
+
+// cut shortens s to at most n bytes, ending on a character boundary. Slicing at
+// an arbitrary index splits a rune, and half a character is not the UTF-8 the
+// record claims to be — Go's encoder hides that by substituting U+FFFD, which
+// corrupts the message quietly and leaves a binding that does not substitute
+// writing invalid JSON. n is always below len(s), so the result is always
+// strictly shorter and the loop above always terminates.
+func cut(s string, n int) string {
+	if n >= len(s) {
+		n = len(s) - 1
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	if n < 0 {
+		return ""
+	}
+	return s[:n]
 }
 
 func (s *FileSink) Close() error {

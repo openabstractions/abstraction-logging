@@ -32,10 +32,12 @@ writing to it — and nothing else.
 Three things it therefore refuses, none of which is a rule because a rule is
 something an implementation can break:
 
-- **It mints no identity.** No accounts, no tokens, no registration, no
-  secrets. Every useful identity provider is one the operating system already
-  operates, and an identity this layer invented would have to be defended by
-  this layer and would be worth exactly as much as a self-declared field.
+- **It mints no identity.** No accounts, no tokens, no registration. Every
+  useful identity provider is one the operating system already operates, and
+  an identity this layer invented would have to be defended by this layer and
+  would be worth exactly as much as a self-declared field. The one key it
+  handles is the operator's, installed on a relay the way a socket path is,
+  and it names that relay to a receiver that already holds it — never a writer.
 - **It does not define an instant.** A timestamp is the job layer's
   `Timestamp`, cited rather than copied. Two definitions of one instant existed
   here until 2026-09-06 and had already drifted in how they parsed.
@@ -81,6 +83,14 @@ designator `Z` [LOG-R7]. Trailing zeros are not trimmed. One layer shipped a
 cross-language defect here because one implementation trimmed them and another
 did not, and both cited the same instant.
 
+**A line is UTF-8, and text shortened to fit a cap is cut on a character
+boundary** [LOG-R8]. Slicing at a byte index splits a character, and a JSON
+string carrying half of one is not JSON. The damage is quiet in a different way
+in each binding: one encoder substitutes a replacement character and writes a
+corrupted message that still parses, another writes bytes no reader can decode,
+and a reader comparing the two sees a format disagreement rather than a
+shortened message.
+
 Anything a particular logger knows that this record does not name travels in
 the attributes. No field is added for it, which is what lets one layer learn
 something new without every other binding changing shape.
@@ -121,6 +131,25 @@ the honest reading of a chain whose last rung is nothing.
 the event most likely to matter, the one carrying a giant payload, and splitting
 breaks the one property that lets several writers share a file.
 
+**Shrinking is a finite ladder, and every step narrows the record** [LOG-S9].
+The message is not the only thing on a record that can be too long: identity and
+job travel with it, and where the retained metadata alone exceeds the cap there
+is no shorter message to find — a one-character message does not halve, and an
+empty one cannot shrink at all. So a step either shortens the message or drops
+one named piece of metadata; a step that would not make the encoded record
+strictly smaller is not taken; and what was dropped is named on the line beside
+the shrink mark. A shrink that can produce a size it has already produced is a
+sink that never returns, which is worse than any line it could have written.
+
+**A cap no record can fit under is refused, and nothing is written** [LOG-S10].
+Below the smallest line this layer can encode — a schema number, an instant, a
+level and the shrink mark — there is no record that both fits and is a record,
+and writing the oversized line anyway would break `LOG-R1` for every other
+writer sharing the file. The refusal is distinguishable from a failure to write,
+because a cap too small is something the application configured and a failure to
+write is something the disk did. This is the only size a sink refuses; every
+other oversized record shrinks.
+
 **A sink that fans out to several does not let one failure stop the others**
 [LOG-S7]. A record reaching two of three places beats an exception in the
 caller's hot path.
@@ -143,7 +172,9 @@ identified by the aggregator's kernel as *the local service*, and the original
 author disappears.
 
 **So identity is an ordered chain, one attestation per hop, counting from the
-writer** [LOG-I1]. Hop 0 is the process that wrote the record.
+writer** [LOG-I1]. Hop 0 is the process that wrote the record; hop *k* is what
+the *k*-th receiver established about the party that handed it the record. The
+subject of hop 1 is the writer; the subject of every later hop is a relay.
 
 **The writer's own attestation names the mechanism `self` and is never
 verified** [LOG-I2]. It is recorded anyway: almost nothing is lying, and when
@@ -158,27 +189,101 @@ contradiction, including one this layer believes to be false, because the
 contradiction is the signal worth alerting on and this is not the layer with
 enough context to adjudicate it.
 
-**A verified attestation a party attached to its own record does not survive
-being sent** [LOG-I5]. It is stripped before the record leaves the process and
-again by the party that accepts it, because only the party that ran a check may
-record that the check passed. Without that, "verified" would mean "the sender
-wrote true", which is worse than useless: it looks like assurance.
+### What the wire can say, and what it cannot
 
-**A service appends what it could establish and overwrites nothing** [LOG-I6].
-Its attestation is a new hop, and the hops in front of it are still there.
+An attestation's `verified` field is the assertion of the party that appended
+it: *I established this rather than copied it*. On the wire a genuine stamp and
+a forgery are the same bytes. So **an upstream party's assertion that it
+verified something is evidence received by a receiver, not verification
+established by it: a wire-level `verified` is preserved as an attributed claim
+and stands, to the receiver, as an assertion at most** [LOG-I5]. Nothing is
+stripped on send or on accept — the earlier form of this rule stripped every
+verified attestation at both sites, which made a two-hop chain unreachable and
+a relay's genuine stamp indistinguishable from a forgery by destroying both.
+~~A verified attestation a party attached to its own record does not survive
+being sent; it is stripped before the record leaves the process and again by
+the party that accepts it.~~ Struck 2026-09-09: it answered a forgery by
+deleting the evidence and the genuine article alike.
 
-**The earliest verified attestation is the author** — whoever originally spoke
-[LOG-I7]. **The last verified attestation is the relay** — whoever most recently
-handed the record on [LOG-I8]. In a chain of one they are the same answer, and
-the distinction is the whole reason the chain is kept.
+**A receiving service appends what it independently established about its
+immediate peer, as a new hop, and overwrites nothing** [LOG-I6]. The hops in
+front of it are still there, whatever they assert.
+
+**Claimed verification is kept separate from the receiver's trust assessment.**
+What a hop is worth to a reader is its *standing*, and there are four:
+
+| standing | what it means to the assessor |
+| --- | --- |
+| `claimed` | the hop asserts no verification: the writer's own claim |
+| `asserted` | the hop asserts it was verified, and nothing the assessor trusts stands behind that. A forged stamp and a genuine stamp from an unauthorised relay both land here |
+| `vouched` | verified through an explicit mechanism the assessor holds — an authorised relay on a trusted path, or evidence bound to the record |
+| `established` | the assessor made this attestation itself |
+
+The first two read the wire; the last two are the assessor's own conclusion.
+This is RFC 8601's shape — an `Authentication-Results` field records the checks
+its own boundary ran, and a result that arrived from outside that boundary is a
+claim however it is labelled — and RFC 9440's for a forwarded client
+certificate: an origin believes the `Client-Cert` field only from a proxy it
+has authenticated. The one declared divergence from RFC 9440 §2.4 is that a
+receiver here does not sanitise the incoming field away; it keeps it, at its
+standing, because `LOG-I4` and the reader's need for the evidence outrank the
+tidiness.
+
+**The assessment starts from an anchor the assessor holds outside the record —
+the attestation it established itself — and never from anything read off the
+wire; with no anchor, no hop stands above `asserted`** [LOG-I13]. This is the
+trust anchor of RFC 5280 §6.1.1, delivered out of band. A receiving service's
+anchor is the stamp it just appended; a reader of a file no service wrote has
+none, and gets claims back, which is exactly what a file can attest.
+
+**From the anchor the path is walked downward, and a hop stands `vouched`
+through an authorised relay only when the trusted hop above it describes a
+party the assessor's policy authorises to attest the hops beneath it**
+[LOG-I14]. Being on the path is not being allowed to vouch: this is the `cA`
+basic constraint of RFC 5280 §4.2.1.9, and certification path validation, §6,
+is the walk. A genuine stamp carried by a relay the policy does not name stands
+`asserted`, the same as a forgery — the receiver has no basis to tell them
+apart, and says so rather than guessing.
+
+**A hop bound to the record under a key the assessor holds stands `vouched`
+with no path at all; a binding that fails — a key the assessor does not hold,
+or a record altered after the binding — stands `asserted`** [LOG-I15]. The
+binding covers the record's content and the chain up to and including the bound
+hop, so a message, an attribute, a level, the writer's claim or the bound
+subject changed afterwards breaks it. DKIM (RFC 6376) is the ancestor: evidence
+travelling with the message, verifiable without trusting what carried it. The
+declared divergence is that the key is symmetric, HMAC-SHA256, because every
+platform furnishes it and the assessor that holds the key is the trust root of
+its own sink; a verifier can therefore forge what it verifies, and this is not
+the mechanism for a reader that must not be trusted with that. The bound bytes
+are the record as canonical JSON — keys sorted, no HTML escaping, no trailing
+newline — which is RFC 8785's shape for the ASCII this layer writes and is
+**unproven against a second language** beyond it.
+
+**The author is the attestation about the writer — hop 1 — and only when the
+path from the anchor reaches it. If only the immediate peer is established, the
+author is unverified** [LOG-I7]. ~~The earliest verified attestation is the
+author — whoever originally spoke.~~ Struck 2026-09-09: the earliest hop
+asserting verification is not the author, it is a claim about the author, and
+reading it as the author is precisely how a forged earlier hop is promoted.
+
+**The relay is the assessor's immediate peer: the hop it established itself**
+[LOG-I8]. ~~The last verified attestation is the relay.~~ Struck the same day,
+for the same reason: last on the wire is where a forger writes. In a chain of
+one, author and relay are the same answer, and the distinction is the whole
+reason the chain is kept.
 
 **A record nothing has vouched for is unattributed, and says so** [LOG-I9]. It
 is not read as the writer's claim promoted for want of anything better.
 
-**A verified attestation that contradicts the claim makes the record disputed,
-and both halves stay on it** [LOG-I10]. A process claiming to be the init system
-while the kernel reports an ordinary account running an ordinary binary is the
-interesting case, and it is only expressible because nothing was discarded.
+**A dispute compares claims about one subject: the writer's claim against the
+attestation about the writer, and only when that attestation stands `vouched`
+or `established`; both halves stay on the record** [LOG-I10]. A process
+claiming to be the init system while the kernel reports an ordinary account
+running an ordinary binary is the interesting case. A relay carrying a
+different pid or host from the writer is expected, not a dispute; and a
+contradiction the receiver has no basis to trust is an unverified author, which
+is a different answer.
 
 **An unestablished numeric identity is -1, never 0** [LOG-I11]. Zero keeps its
 real meaning: a provider that could not determine a user id must not be
@@ -188,33 +293,15 @@ indistinguishable from one that determined the superuser.
 not** [LOG-I12]. The line stays unattributed for a stated reason rather than
 looking unattributed for an unknown one.
 
-### The one question this page does not settle
+### What this design cannot refuse, stated
 
-A relay chain has two verified hops, and the rules above say what each of them
-means. What no rule here says is how the party in the middle tells a stamp its
-predecessor made from a forgery the original writer attached. On the wire they
-are the same bytes.
-
-Two answers, and they are a real choice rather than a detail:
-
-- **Strip every verified attestation on accept.** Nothing forged can survive,
-  and neither can anything genuine: a chain can then never hold more than one
-  verified hop, the earliest and the last are always the same attestation, and
-  the relay argument that justifies keeping a chain at all is unreachable.
-- **Strip only what the sending party asserted about itself.** A relay chain
-  works and reads as it was designed to, and a writer that attaches an
-  attestation attributed to a hop it did not occupy is believed.
-
-Neither is chosen here. `LOG-I5` states the half both answers deliver — an
-attestation a party made about itself does not survive its own send — and the
-scenario that reaches the disputed half asserts nothing about it and says so.
-
-**The implementation shipped today takes the first answer**, and strips every
-verified attestation from every record it accepts. So the two-hop chain
-`LOG-I7` and `LOG-I8` are specified against cannot be produced by it, and its
-own two accessors — the earliest verified attestation and the last — cannot
-return different answers on any record it has ever written. A reader should
-know that before believing either of them means what it says.
+An authorised relay can forge anything beneath it, the way a certification
+authority can. Authorisation is the policy's statement that it accepts that.
+And a relay that is authorised by identity is authorised for the hops it
+carries on a channel the receiver's kernel mediated; a record that passes
+through a party the receiver does not trust, or rests in a store between the
+stamp and the reader, needs the bound evidence of `LOG-I15`, and this layer has
+no transport yet on which that case arises.
 
 ---
 
@@ -256,17 +343,22 @@ deciding a permission model on this answer would be wrong today.
 
 ## What a conformance run can reach
 
-A driver for this layer does not exist, in any language. Every rule below is
-**UNPROVEN against every implementation**: the scenarios have been shown to fail
-when the rule each cites is deliberately broken, which is a fact about the
-scenarios and not about any implementation.
+One driver exists, in Go, at `go/cmd/replay`, and the seven scenarios in
+`testdata/scenarios/` are green against it on Windows and on Linux. Every rule
+below is therefore **proven against one implementation and UNPROVEN against any
+second**, which for a layer whose claim is that several languages agree on one
+record format is the gap that matters: a green against one binding proves that
+it agrees with itself.
 
 **Reachable by a driver alone**, needing nothing but the machine it runs on.
-Twenty-six rules, six scenarios in `testdata/scenarios/`: the shape of one
-encoded record, a reader refusing a schema, the delegation chain and each way it
-degrades, an oversized record shrinking, the identity chain from the writer's
-claim through a stripped forgery to two relays, and a contradiction that must
-survive.
+Thirty-two rules, seven scenarios: the shape of one encoded record, a reader
+refusing a schema, the delegation chain and each way it degrades, an oversized
+record shrinking, a record whose retained metadata alone will not fit, a cap too
+small for any record at all, a message of three-byte characters cut to fit
+without splitting one, the identity chain along a real two-hop path, a
+contradiction that must survive, and three attacks on the chain — a forged earlier hop, an
+unauthorised relay, evidence altered after it was bound — plus a forged
+binding, none of which is promoted.
 
 **Declared and reached by no scenario**, five rules, each for a stated reason:
 
@@ -278,20 +370,18 @@ survive.
 | `LOG-P3` | reachable only on a platform whose access control this interface cannot read, which is exactly the platform where the answer is a constant |
 | `LOG-P4` | as above, and it is the rule this layer does not keep |
 
-**Not reachable by any scenario, and the gap that matters most.** The rung of
-the chain that makes this layer worth having — a service that asks the kernel
-who sent a record — is present as a library and is run by nothing. There is no
-service to point a driver at, the peer-credential lookup behind it answers on
-one platform of three, and the identity rules above are therefore proved against
-a benched chain rather than against a kernel. `LOG-I5`, `LOG-I6`, `LOG-I7`,
-`LOG-I8` and `LOG-I12` are judged on what an implementation does to a chain it
-is handed, and are **UNPROVEN against a real connection** on every platform.
+**Reached against a benched chain, and separately against a kernel.** The
+scenarios hand the driver what a platform's attester answered, so the
+arithmetic of the chain is judged on any machine. The same path — a writer, a
+relay and a receiver on three unix sockets, the kernel stamping both links — is
+run by this binding's own tests on Linux, and nowhere else: the peer-credential
+lookup answers on one platform of three, and on the other two the service
+records that it could not attest and every record it accepts is unattributed
+with that reason.
 
-**Not reachable by any run, in any language but one.** This layer's claim is
-that several languages agree on one record format. One binding exists. Until a
-second one runs these scenarios, a green proves that an implementation agrees
-with itself, which is the thing a conformance suite exists to stop counting as
-evidence.
+**Not reachable by any run, in any language but one.** One binding exists.
+Until a second one runs these scenarios, a green proves that an implementation
+agrees with itself.
 
 **What the shared runner still needs.** The scenarios name a capability and its
 operations, and the driver contract page does not yet carry this layer's
@@ -306,7 +396,8 @@ scenarios.
 
 | | ran | did not run |
 | --- | --- | --- |
-| the scenarios | against a transcript replaying this page's own answers, on a Windows workstation, every cited rule shown to fail when broken | against any implementation, in any language, on any platform |
+| the scenarios | against this binding's driver on a Windows workstation and on Linux under WSL2, every cited rule shown to fail when broken in the implementation | against any second language, on any platform |
 | the record format | one language's own unit tests | any second language — the second binding is an empty directory |
-| peer credentials | one kernel's own unit tests, in one language | every other platform; the lookup returns an error there and no scenario reaches it |
-| the service | its unit tests, as a library | as a running service. Nothing ships one, and nothing this project runs writes where a reader could see |
+| the identity chain | the walk, the binding and each attack in unit tests on both platforms; the real two-hop socket path on Linux | the two-hop path on Windows or macOS, where the kernel lookup is not written |
+| peer credentials | one kernel's own unit tests, in one language | every other platform; the lookup returns an error there |
+| the service | its unit tests, and as a real listener under the driver for the tier scenario | as a shipped daemon. Nothing ships one, and nothing this project runs writes where a reader could see |
