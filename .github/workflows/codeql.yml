@@ -34,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
-          path: ${{ github.event.repository.name }}
+          path: ${{ matrix.language == 'actions' && '.' || github.event.repository.name }}
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         if: matrix.language == 'c-cpp'
         with:
@@ -63,7 +63,7 @@ jobs:
       - uses: github/codeql-action/init@311b4ee155dcdab395044f00946f664bd51ff173 # v4
         with:
           languages: ${{ matrix.language }}
-          source-root: ${{ github.workspace }}/${{ github.event.repository.name }}
+          source-root: ${{ github.workspace }}/${{ matrix.language == 'actions' && '.' || github.event.repository.name }}
           build-mode: ${{ (matrix.language == 'c-cpp' || matrix.language == 'go') && 'manual' || 'none' }}
       - name: compile Go for analysis
         if: matrix.language == 'go'
