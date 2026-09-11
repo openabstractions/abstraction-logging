@@ -59,7 +59,7 @@ held C
 
 # expect 6: ok where=file [LOG-S6]
 # expect 7: ok lines=1 over=0 marked=1 torn=0 [LOG-S6]
-# expect 9: ok where=file
+# expect 9: ok where=file [LOG-S2]
 # expect 10: ok lines=2 over=0 marked=1 torn=0 [LOG-S6]
 # expect 14: ok where=file [LOG-S9]
 # expect 15: ok lines=3 over=0 marked=2 torn=0 [LOG-S9]

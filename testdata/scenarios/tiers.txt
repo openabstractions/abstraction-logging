@@ -41,9 +41,9 @@ write F
 # expect 9: ok out=sink [LOG-S8]
 # expect 11: ok tier=service [LOG-S1] [LOG-S2]
 # expect 12: ok where=service [LOG-S2]
-# expect 14: ok tier=service
+# expect 14: ok tier=service [LOG-S2]
 # expect 15: ok where=file [LOG-S5]
 # expect 17: ok tier=discard [LOG-S4]
 # expect 18: ok where=discard [LOG-S4]
-# expect 20: ok tier=service
+# expect 20: ok tier=service [LOG-S2]
 # expect 21: ok where=discard [LOG-S5]
