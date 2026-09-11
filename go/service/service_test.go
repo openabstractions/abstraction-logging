@@ -25,7 +25,8 @@ type capture struct{ frame []byte }
 func (c *capture) WriteFrame(b []byte) error { c.frame = append([]byte(nil), b...); return nil }
 
 func TestGeneratedDispatchRejectsBeforeProvider(t *testing.T) {
-	endpoint := listen.Endpoint(fmt.Sprintf("log-test-%d-%d", os.Getpid(), time.Now().UnixNano()))
+	// Keep the endpoint within sockaddr_un even with Darwin's long temp prefix.
+	endpoint := listen.Endpoint(fmt.Sprintf("lt-%d", os.Getpid()))
 	sink := make(observedSink, 4)
 	host, err := Listen(endpoint, sink)
 	if err != nil {
