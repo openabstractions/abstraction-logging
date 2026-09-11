@@ -1,0 +1,32 @@
+cmake_minimum_required(VERSION 3.16)
+project(abstraction_logging VERSION 0.1.0 LANGUAGES CXX)
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+if(NOT TARGET abstraction::ipc)
+    find_package(abstraction_ipc CONFIG QUIET)
+endif()
+if(NOT TARGET abstraction::ipc AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../abstraction-identity/cpp/CMakeLists.txt")
+    add_subdirectory(../../abstraction-identity/cpp abstraction_ipc-build)
+endif()
+if(NOT TARGET abstraction::ipc)
+    message(FATAL_ERROR "Install abstraction_ipc and set CMAKE_PREFIX_PATH, or provide sibling abstraction-identity. Nothing is fetched.")
+endif()
+add_library(abstraction_logging_client INTERFACE)
+add_library(abstraction::logging_client ALIAS abstraction_logging_client)
+set_target_properties(abstraction_logging_client PROPERTIES EXPORT_NAME logging_client)
+target_compile_features(abstraction_logging_client INTERFACE cxx_std_17)
+target_include_directories(abstraction_logging_client INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_link_libraries(abstraction_logging_client INTERFACE abstraction::ipc)
+install(TARGETS abstraction_logging_client EXPORT abstraction_loggingTargets)
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(DIRECTORY abstraction/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/abstraction)
+set(config_dir ${CMAKE_INSTALL_LIBDIR}/cmake/abstraction_logging)
+install(EXPORT abstraction_loggingTargets NAMESPACE abstraction:: DESTINATION ${config_dir})
+configure_package_config_file(cmake/abstraction_loggingConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/abstraction_loggingConfig.cmake INSTALL_DESTINATION ${config_dir})
+write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/abstraction_loggingConfigVersion.cmake COMPATIBILITY SameMinorVersion)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/abstraction_loggingConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/abstraction_loggingConfigVersion.cmake DESTINATION ${config_dir})
