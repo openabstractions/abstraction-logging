@@ -3,8 +3,11 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	identity "github.com/openabstractions/abstraction-identity"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -79,6 +82,23 @@ func TestGeneratedDispatchRejectsBeforeProvider(t *testing.T) {
 	}
 	if err := transport.WriteFrame(captured.frame); err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "darwin" {
+		select {
+		case err := <-failures:
+			if !errors.Is(err, identity.ErrNotProven) {
+				t.Fatalf("expected platform proof refusal, got %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("missing platform proof refusal")
+		}
+		select {
+		case <-sink:
+			t.Fatal("insufficiently proven caller reached provider")
+		default:
+		}
+		t.Log("UNPROVEN successful service calls on Darwin: Program requires stronger process/path proof; refusal verified")
+		return
 	}
 	select {
 	case got := <-sink:

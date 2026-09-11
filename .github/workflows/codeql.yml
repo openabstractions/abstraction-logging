@@ -1,0 +1,98 @@
+name: CodeQL
+
+# Publish as .github/workflows/codeql.yml, then switch repository code scanning
+# from default setup to advanced setup. Keep all previously analyzed languages;
+# header-only C++ clients need a translation unit rather than an empty autobuild.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: codeql-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(github.event.repository.name == 'abstraction-config' && '["c-cpp","go","python","actions"]' || '["c-cpp","go","actions"]') }}
+    env:
+      GOWORK: 'off'
+      REPOSITORY: ${{ github.event.repository.name }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          path: ${{ github.event.repository.name }}
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        if: matrix.language == 'c-cpp'
+        with:
+          repository: openabstractions/abstraction-identity
+          path: abstraction-identity
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
+        with:
+          repository: openabstractions/abstraction-logging
+          path: abstraction-logging
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
+        with:
+          repository: openabstractions/abstraction-config
+          path: abstraction-config
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
+        with:
+          repository: openabstractions/abstraction-router
+          path: abstraction-router
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        if: matrix.language == 'go'
+        with:
+          go-version-file: ${{ github.event.repository.name }}/go/go.mod
+          cache: false
+      - uses: github/codeql-action/init@311b4ee155dcdab395044f00946f664bd51ff173 # v4
+        with:
+          languages: ${{ matrix.language }}
+          source-root: ${{ github.workspace }}/${{ github.event.repository.name }}
+          build-mode: ${{ (matrix.language == 'c-cpp' || matrix.language == 'go') && 'manual' || 'none' }}
+      - name: compile Go for analysis
+        if: matrix.language == 'go'
+        working-directory: ${{ github.event.repository.name }}/go
+        run: go build -mod=readonly ./...
+      - name: compile native client for analysis
+        if: matrix.language == 'c-cpp'
+        shell: bash
+        run: |
+          case "$REPOSITORY" in
+            abstraction-config|abstraction-logging|abstraction-router|abstraction-facade) ;;
+            *) echo 'Unsupported service-client repository'; exit 1 ;;
+          esac
+          cmake -S "$REPOSITORY/cpp" -B "$RUNNER_TEMP/native" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_DISABLE_FIND_PACKAGE_abstraction_ipc=TRUE \
+            -DCMAKE_DISABLE_FIND_PACKAGE_abstraction_logging=TRUE \
+            -DCMAKE_DISABLE_FIND_PACKAGE_abstraction_config=TRUE \
+            -DCMAKE_DISABLE_FIND_PACKAGE_abstraction_router=TRUE
+          cmake --build "$RUNNER_TEMP/native" --parallel 2
+          capability="${REPOSITORY#abstraction-}"
+          printf '#include <abstraction/%s/client.hpp>\nint main() { return 0; }\n' "$capability" > "$REPOSITORY/cpp/codeql_client.cpp"
+          includes=(-I "$REPOSITORY/cpp/include" -I "$REPOSITORY/cpp" -I abstraction-identity/cpp/include)
+          if [ "$capability" = facade ]; then
+            for dependency in logging config router; do
+              includes+=(-I "abstraction-$dependency/cpp/include" -I "abstraction-$dependency/cpp")
+            done
+          fi
+          g++ -std=c++17 "${includes[@]}" -c "$REPOSITORY/cpp/codeql_client.cpp" -o "$RUNNER_TEMP/codeql_client.o"
+      - uses: github/codeql-action/analyze@311b4ee155dcdab395044f00946f664bd51ff173 # v4
+        with:
+          category: /language:${{ matrix.language }}
