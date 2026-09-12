@@ -25,6 +25,9 @@ type Host struct {
 	// OnError reports refused requests and provider failures to the host operator.
 	// It may be called concurrently. It is never a response to a one-way call.
 	OnError func(error)
+	// OnStopped is called when admission stops, before active writes drain.
+	// Assign it before Serve. It must return promptly.
+	OnStopped func()
 }
 
 func Listen(endpoint string, out logging.Sink) (*Host, error) {
@@ -49,6 +52,12 @@ func (h *Host) Serve(ctx context.Context) error {
 	stop := context.AfterFunc(ctx, func() { _ = h.Close() })
 	defer stop()
 	defer h.workers.Wait()
+	defer func() {
+		if h.OnStopped != nil {
+			h.OnStopped()
+		}
+	}()
+	defer h.Close()
 	for {
 		connection, err := h.listener.Accept()
 		if err != nil {
