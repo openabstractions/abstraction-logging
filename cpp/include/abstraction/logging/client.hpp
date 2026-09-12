@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <optional>
 #include <ctime>
 
 namespace abstraction::logging {
@@ -30,8 +31,13 @@ class Logger {
 public:
     explicit Logger(std::string endpoint = default_endpoint()) : endpoint_(std::move(endpoint)) {}
 
+    // Explicit operation scope; copies retain the same absolute deadline.
+    Logger(std::string endpoint, ipc::Deadline deadline)
+        : endpoint_(std::move(endpoint)), deadline_(deadline) {}
+
     void Write(const Record& record) const {
-        ipc::FrameTransport transport(endpoint_, 2000, 1 << 20);
+        auto transport = deadline_ ? ipc::FrameTransport(endpoint_, *deadline_, 1 << 20)
+                                   : ipc::FrameTransport(endpoint_, 2000, 1 << 20);
         SinkClient<ipc::FrameTransport> client(transport);
         client.Write(record);
     }
@@ -67,5 +73,6 @@ public:
     }
 private:
     std::string endpoint_;
+    std::optional<ipc::Deadline> deadline_;
 };
 }
