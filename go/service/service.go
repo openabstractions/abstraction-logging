@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/user"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
@@ -18,10 +20,13 @@ import (
 type Host struct {
 	listener  listen.Listener
 	out       logging.Sink
+	owner     string
 	ctx       context.Context
 	cancel    context.CancelFunc
 	closeOnce sync.Once
 	workers   sync.WaitGroup
+	calls     chan struct{}
+	observers chan struct{}
 	// OnError reports refused requests and provider failures to the host operator.
 	// It may be called concurrently. It is never a response to a one-way call.
 	OnError func(error)
@@ -34,12 +39,19 @@ func Listen(endpoint string, out logging.Sink) (*Host, error) {
 	if out == nil {
 		return nil, errors.New("logging service: nil provider")
 	}
+	owner, err := user.Current()
+	if err != nil {
+		return nil, err
+	}
+	if owner.Uid == "" {
+		return nil, errors.New("logging service: owner unavailable")
+	}
 	l, err := listen.Listen(endpoint)
 	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Host{listener: l, out: out, ctx: ctx, cancel: cancel}, nil
+	return &Host{listener: l, out: out, owner: owner.Uid, ctx: ctx, cancel: cancel, calls: make(chan struct{}, 64), observers: make(chan struct{}, 32)}, nil
 }
 
 func (h *Host) Close() error {
@@ -66,20 +78,47 @@ func (h *Host) Serve(ctx context.Context) error {
 			}
 			return err
 		}
+		select {
+		case h.calls <- struct{}{}:
+		default:
+			connection.Close()
+			continue
+		}
 		h.workers.Add(1)
 		go func() {
 			defer h.workers.Done()
+			defer func() { <-h.calls }()
 			defer connection.Close()
-			requestContext, cancel := context.WithTimeout(h.ctx, 5*time.Second)
+			requestContext, cancel := context.WithTimeout(h.ctx, 35*time.Second)
 			defer cancel()
 			call, err := listen.ReceiveFramed(requestContext, connection, listen.Program, 1<<20)
 			if call != nil {
 				defer call.Close()
 			}
 			if err == nil {
-				handler := &receiver{out: h.out, call: call}
-				dispatch := wire.SinkDispatcher{Handler: handler}
-				err = dispatch.WriteFrame(call.Frame)
+				handler := &receiver{out: h.out, call: call, owner: h.owner, observers: h.observers}
+				var name string
+				name, err = wire.ServiceName(call.Frame)
+				if err == nil {
+					if name == "abstraction.logging/reader@1" {
+						dispatcher := wire.HistoryReaderDispatcher{Handler: handler}
+						var reply []byte
+						reply, err = dispatcher.ExchangeFrame(call.Frame)
+						if err == nil {
+							err = call.Reply(reply)
+						}
+					} else if name == "abstraction.logging/observer@1" {
+						dispatcher := wire.HistoryObserverDispatcher{Handler: handler}
+						reply, dispatchErr := dispatcher.ExchangeFrame(call.Frame)
+						err = dispatchErr
+						if err == nil {
+							err = call.Reply(reply)
+						}
+					} else {
+						dispatch := wire.SinkDispatcher{Handler: handler}
+						err = dispatch.WriteFrame(call.Frame)
+					}
+				}
 			}
 			if err != nil && h.OnError != nil && h.ctx.Err() == nil {
 				h.OnError(err)
@@ -89,8 +128,10 @@ func (h *Host) Serve(ctx context.Context) error {
 }
 
 type receiver struct {
-	out  logging.Sink
-	call *listen.FramedCall
+	out       logging.Sink
+	call      *listen.FramedCall
+	owner     string
+	observers chan struct{}
 }
 
 func (r *receiver) Write(value wire.Record) error {
@@ -127,4 +168,78 @@ func (r *receiver) Write(value wire.Record) error {
 	// own observation. Never promote a submitted 'verified' field to authority.
 	attested := (&logging.Server{}).Accept(record, peer, nil)
 	return r.out.Write(attested)
+}
+
+// HistoryAvailable describes the selected provider, independently of write readiness.
+func (h *Host) HistoryAvailable() bool {
+	_, ok := h.out.(wire.HistoryReader)
+	return ok
+}
+
+func (r *receiver) authorizeHistory() error {
+	peer, err := r.call.Peer()
+	if err != nil {
+		return &wire.ServiceError{Code: "caller_unavailable", Message: "caller identity could not be rechecked"}
+	}
+	who, err := peer.User.AtLeast(listen.Program.User)
+	if err != nil {
+		return &wire.ServiceError{Code: "identity_required", Message: "kernel user identity required"}
+	}
+	principal := ""
+	if who.Kind == "windows" {
+		principal = who.SID
+	} else if who.Kind == "posix" {
+		principal = strconv.Itoa(who.UID)
+	}
+	if principal == "" || principal != r.owner {
+		return &wire.ServiceError{Code: "wrong_user", Message: "history belongs to another user"}
+	}
+	return nil
+}
+
+func (r *receiver) Read(cursor string, maxRecords, maxBytes int64) (wire.Page, error) {
+	if err := r.authorizeHistory(); err != nil {
+		return wire.Page{}, err
+	}
+	if maxRecords < 1 || maxRecords > 256 || maxBytes < 1 || maxBytes > 65536 {
+		return wire.Page{Outcome: wire.PageOutcomeInvalidRequest, Records: []wire.Record{}, Next: cursor}, nil
+	}
+	if source, ok := r.out.(wire.HistoryReader); ok {
+		return source.Read(cursor, maxRecords, maxBytes)
+	}
+	return wire.Page{Outcome: wire.PageOutcomeUnavailable, Records: []wire.Record{}, Next: cursor}, nil
+}
+
+// ObservationAvailable reports native notification support for this provider.
+func (h *Host) ObservationAvailable() bool { _, ok := h.out.(logging.HistoryObserver); return ok }
+func (r *receiver) Observe(cursor string, maxRecords, maxBytes, waitMS int64) (wire.Page, error) {
+	if err := r.authorizeHistory(); err != nil {
+		return wire.Page{}, err
+	}
+	refusal := func(outcome string) (wire.Page, error) {
+		return wire.Page{Outcome: outcome, Records: []wire.Record{}, Next: cursor}, nil
+	}
+	if maxRecords < 1 || maxRecords > 256 || maxBytes < 1 || maxBytes > 65536 || waitMS < 0 || waitMS > 30000 {
+		return refusal(wire.PageOutcomeInvalidRequest)
+	}
+	source, ok := r.out.(logging.HistoryObserver)
+	if !ok {
+		return refusal(wire.PageOutcomeUnsupported)
+	}
+	if waitMS > 0 {
+		select {
+		case r.observers <- struct{}{}:
+			defer func() { <-r.observers }()
+		default:
+			return refusal(wire.PageOutcomeUnavailable)
+		}
+	}
+	page, err := source.ObserveContext(r.call.WaitContext(), cursor, maxRecords, maxBytes, waitMS)
+	if err != nil {
+		return wire.Page{}, err
+	}
+	if err = r.authorizeHistory(); err != nil {
+		return wire.Page{}, err
+	}
+	return page, nil
 }

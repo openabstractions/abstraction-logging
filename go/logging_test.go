@@ -172,7 +172,7 @@ func TestUnconfiguredIsAWorkingNoop(t *testing.T) {
 }
 
 // A daemon nobody configured must still be heard.
-func TestUnconfiguredDefaultSpeaksOnStderr(t *testing.T) {
+func TestExplicitLegacyDefaultSpeaksOnStderr(t *testing.T) {
 	os.Unsetenv(EnvSink)
 	os.Unsetenv(EnvService)
 	r, w, err := os.Pipe()
@@ -181,7 +181,7 @@ func TestUnconfiguredDefaultSpeaksOnStderr(t *testing.T) {
 	}
 	stderr := os.Stderr
 	os.Stderr = w
-	slog.New(Default("p")).Info("audible")
+	slog.New(LegacyDefault("p")).Info("audible")
 	os.Stderr = stderr
 	w.Close()
 	out, _ := io.ReadAll(r)
@@ -189,7 +189,7 @@ func TestUnconfiguredDefaultSpeaksOnStderr(t *testing.T) {
 		t.Fatalf("stderr got %q", out)
 	}
 	t.Setenv(EnvSink, filepath.Join(t.TempDir(), "a.jsonl"))
-	h, ok := Default("p").(*Handler)
+	h, ok := LegacyDefault("p").(*Handler)
 	if !ok {
 		t.Fatal("a configured sink was not used")
 	}

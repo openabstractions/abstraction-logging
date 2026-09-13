@@ -98,7 +98,12 @@ func (s *ServiceSink) Close() error {
 // Auto picks the best sink this machine has: a service if one is configured,
 // a file if one is configured, else a working no-op. Nothing above this call
 // chooses; where a record goes is a property of the machine.
-func Auto(program string) Sink {
+// Deprecated: Auto retains the legacy environment/file selection behavior.
+// Use Default for resolved service logging, or LegacyAuto for deliberate adoption.
+func Auto(program string) Sink { return LegacyAuto(program) }
+
+// LegacyAuto explicitly selects the legacy environment/file fallback provider.
+func LegacyAuto(program string) Sink {
 	file := FromEnv()
 	if addr := os.Getenv(EnvService); addr != "" {
 		return NewServiceSink(addr, file)

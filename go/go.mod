@@ -3,6 +3,7 @@ module github.com/openabstractions/abstraction-logging/go
 go 1.26
 
 require (
+	github.com/openabstractions/abstraction-facade/go-core v0.0.0 // development: publish core and pin its real version before release
 	github.com/openabstractions/abstraction-identity v0.2.1-0.20260911225957-3aa75da4cda3
 	github.com/openabstractions/abstraction-job/go v0.4.1
 )

@@ -31,9 +31,13 @@ type Sink interface {
 // other's. That is also why a record is written with a single Write call and why
 // oversized records are refused instead of being split.
 type FileSink struct {
-	mu   sync.Mutex
-	f    *os.File
-	path string
+	mu             sync.Mutex
+	f              *os.File
+	path           string
+	historyEpoch   string
+	historyChanged chan struct{}
+	historyWaiters int
+	historyClosed  bool
 
 	// MaxLine caps one encoded record. Beyond this the atomicity argument above
 	// stops holding and concurrent writers could interleave halves of two lines,
@@ -81,7 +85,12 @@ func (s *FileSink) Write(r Record) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err = s.f.Write(b)
+	n, writeErr := s.f.Write(b)
+	err = writeErr
+	if n > 0 && s.historyChanged != nil {
+		close(s.historyChanged)
+		s.historyChanged = make(chan struct{})
+	}
 	return err
 }
 
@@ -230,6 +239,12 @@ func cut(s string, n int) string {
 func (s *FileSink) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.historyClosed {
+		s.historyClosed = true
+		if s.historyChanged != nil {
+			close(s.historyChanged)
+		}
+	}
 	return s.f.Close()
 }
 

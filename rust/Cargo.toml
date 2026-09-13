@@ -1,0 +1,10 @@
+[package]
+name = "abstraction-logging-api"
+version = "0.0.0"
+edition = "2021"
+description = "Generated OpenAbstractions logging Rust service protocol"
+[lib]
+path = "../rs/abstraction/logging/rec.rs"
+
+[dependencies]
+abstraction-frame = { path = "../../abstraction-identity/rust-frame" }

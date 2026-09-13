@@ -224,6 +224,24 @@ func encList[T any](out []byte, v []T, depth int, enc func([]byte, *T, int) []by
 	return append(out, ']')
 }
 
+var PageOutcomeNames = []string{"page", "gap", "unavailable", "invalid_request", "record_too_large", "corrupt", "unsupported"}
+
+const PageOutcomePage = "page"
+
+const PageOutcomeGap = "gap"
+
+const PageOutcomeUnavailable = "unavailable"
+
+const PageOutcomeInvalidRequest = "invalid_request"
+
+const PageOutcomeRecordTooLarge = "record_too_large"
+
+const PageOutcomeCorrupt = "corrupt"
+
+const PageOutcomeUnsupported = "unsupported"
+
+const PageOutcomeUnknown = "refuse"
+
 type Attestation struct {
 	By       string
 	Verified bool
@@ -249,8 +267,28 @@ type Record struct {
 	Attrs    map[string]string
 }
 
+type Page struct {
+	Outcome string
+	Records []Record
+	Next    string
+	AtEnd   bool
+}
+
 type OASinkWriteArguments struct {
 	Record Record
+}
+
+type OAHistoryReaderReadArguments struct {
+	Cursor     string
+	MaxRecords int64
+	MaxBytes   int64
+}
+
+type OAHistoryObserverObserveArguments struct {
+	Cursor     string
+	MaxRecords int64
+	MaxBytes   int64
+	WaitMs     int64
 }
 
 type OAServiceFrame struct {
@@ -258,6 +296,27 @@ type OAServiceFrame struct {
 	Service   string
 	Method    string
 	Arguments Raw
+}
+
+type OAServiceReply struct {
+	Version int32
+	Service string
+	Method  string
+	Ok      bool
+	Payload Raw
+}
+
+type OAServiceError struct {
+	Code    string
+	Message string
+}
+
+type OAHistoryReaderReadResult struct {
+	Value Page
+}
+
+type OAHistoryObserverObserveResult struct {
+	Value Page
 }
 
 func encAttestation(out []byte, v *Attestation, depth int) []byte {
@@ -411,6 +470,43 @@ func encRecord(out []byte, v *Record, depth int) []byte {
 	return append(out, '}')
 }
 
+func encPage(out []byte, v *Page, depth int) []byte {
+	if v.Outcome != "page" && v.Outcome != "gap" && v.Outcome != "unavailable" && v.Outcome != "invalid_request" && v.Outcome != "record_too_large" && v.Outcome != "corrupt" && v.Outcome != "unsupported" {
+		panic(&Refusal{Word: "bad_enum", Offset: 0})
+	}
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "outcome")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Outcome)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "records")
+	out = append(out, ':', ' ')
+	out = encList(out, v.Records, depth+1, encRecord)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "next")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Next)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "at_end")
+	out = append(out, ':', ' ')
+	if v.AtEnd {
+		out = append(out, 't', 'r', 'u', 'e')
+	} else {
+		out = append(out, 'f', 'a', 'l', 's', 'e')
+	}
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
 func encOASinkWriteArguments(out []byte, v *OASinkWriteArguments, depth int) []byte {
 	out = append(out, '{')
 	out = append(out, '\n')
@@ -418,6 +514,60 @@ func encOASinkWriteArguments(out []byte, v *OASinkWriteArguments, depth int) []b
 	out = esc(out, "record")
 	out = append(out, ':', ' ')
 	out = encRecord(out, &v.Record, depth+1)
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encOAHistoryReaderReadArguments(out []byte, v *OAHistoryReaderReadArguments, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "cursor")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Cursor)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "max_records")
+	out = append(out, ':', ' ')
+	out = num(out, v.MaxRecords)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "max_bytes")
+	out = append(out, ':', ' ')
+	out = num(out, v.MaxBytes)
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encOAHistoryObserverObserveArguments(out []byte, v *OAHistoryObserverObserveArguments, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "cursor")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Cursor)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "max_records")
+	out = append(out, ':', ' ')
+	out = num(out, v.MaxRecords)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "max_bytes")
+	out = append(out, ':', ' ')
+	out = num(out, v.MaxBytes)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "wait_ms")
+	out = append(out, ':', ' ')
+	out = num(out, v.WaitMs)
 	out = append(out, '\n')
 	out = pad(out, depth)
 	return append(out, '}')
@@ -448,6 +598,88 @@ func encOAServiceFrame(out []byte, v *OAServiceFrame, depth int) []byte {
 	out = esc(out, "arguments")
 	out = append(out, ':', ' ')
 	out = append(out, v.Arguments...)
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encOAServiceReply(out []byte, v *OAServiceReply, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "version")
+	out = append(out, ':', ' ')
+	out = num(out, int64(v.Version))
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "service")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Service)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "method")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Method)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "ok")
+	out = append(out, ':', ' ')
+	if v.Ok {
+		out = append(out, 't', 'r', 'u', 'e')
+	} else {
+		out = append(out, 'f', 'a', 'l', 's', 'e')
+	}
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "payload")
+	out = append(out, ':', ' ')
+	out = append(out, v.Payload...)
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encOAServiceError(out []byte, v *OAServiceError, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "code")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Code)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "message")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Message)
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encOAHistoryReaderReadResult(out []byte, v *OAHistoryReaderReadResult, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "value")
+	out = append(out, ':', ' ')
+	out = encPage(out, &v.Value, depth+1)
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encOAHistoryObserverObserveResult(out []byte, v *OAHistoryObserverObserveResult, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "value")
+	out = append(out, ':', ' ')
+	out = encPage(out, &v.Value, depth+1)
 	out = append(out, '\n')
 	out = pad(out, depth)
 	return append(out, '}')
@@ -1471,6 +1703,98 @@ func (r *reader) decodeRecord() (*Record, error) {
 	return v, nil
 }
 
+func (r *reader) decodePage() (*Page, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &Page{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "outcome":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Outcome = x
+			case "records":
+				if seen&2 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 2
+				x, err := decodeList(r, (*reader).decodeRecord)
+				if err != nil {
+					return nil, err
+				}
+				v.Records = x
+			case "next":
+				if seen&4 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 4
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Next = x
+			case "at_end":
+				if seen&8 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 8
+				x, err := r.boolean()
+				if err != nil {
+					return nil, err
+				}
+				v.AtEnd = x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&15 != 15 {
+		return nil, r.refuse("missing_field")
+	}
+	if v.Outcome != "page" && v.Outcome != "gap" && v.Outcome != "unavailable" && v.Outcome != "invalid_request" && v.Outcome != "record_too_large" && v.Outcome != "corrupt" && v.Outcome != "unsupported" {
+		return nil, r.refuse("bad_enum")
+	}
+	return v, nil
+}
+
 func (r *reader) decodeOASinkWriteArguments() (*OASinkWriteArguments, error) {
 	if r.at() != '{' {
 		return nil, r.refuse("wrong_type")
@@ -1525,6 +1849,174 @@ func (r *reader) decodeOASinkWriteArguments() (*OASinkWriteArguments, error) {
 	r.pos++
 	r.depth--
 	if seen&1 != 1 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeOAHistoryReaderReadArguments() (*OAHistoryReaderReadArguments, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &OAHistoryReaderReadArguments{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "cursor":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Cursor = x
+			case "max_records":
+				if seen&2 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 2
+				x, err := r.integer(-9223372036854775808, 9223372036854775807)
+				if err != nil {
+					return nil, err
+				}
+				v.MaxRecords = x
+			case "max_bytes":
+				if seen&4 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 4
+				x, err := r.integer(-9223372036854775808, 9223372036854775807)
+				if err != nil {
+					return nil, err
+				}
+				v.MaxBytes = x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&7 != 7 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeOAHistoryObserverObserveArguments() (*OAHistoryObserverObserveArguments, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &OAHistoryObserverObserveArguments{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "cursor":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Cursor = x
+			case "max_records":
+				if seen&2 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 2
+				x, err := r.integer(-9223372036854775808, 9223372036854775807)
+				if err != nil {
+					return nil, err
+				}
+				v.MaxRecords = x
+			case "max_bytes":
+				if seen&4 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 4
+				x, err := r.integer(-9223372036854775808, 9223372036854775807)
+				if err != nil {
+					return nil, err
+				}
+				v.MaxBytes = x
+			case "wait_ms":
+				if seen&8 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 8
+				x, err := r.integer(-9223372036854775808, 9223372036854775807)
+				if err != nil {
+					return nil, err
+				}
+				v.WaitMs = x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&15 != 15 {
 		return nil, r.refuse("missing_field")
 	}
 	return v, nil
@@ -1619,6 +2111,292 @@ func (r *reader) decodeOAServiceFrame() (*OAServiceFrame, error) {
 	return v, nil
 }
 
+func (r *reader) decodeOAServiceReply() (*OAServiceReply, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &OAServiceReply{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "version":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.integer(-2147483648, 2147483647)
+				if err != nil {
+					return nil, err
+				}
+				v.Version = int32(x)
+			case "service":
+				if seen&2 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 2
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Service = x
+			case "method":
+				if seen&4 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 4
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Method = x
+			case "ok":
+				if seen&8 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 8
+				x, err := r.boolean()
+				if err != nil {
+					return nil, err
+				}
+				v.Ok = x
+			case "payload":
+				if seen&16 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 16
+				x, err := r.rawValue()
+				if err != nil {
+					return nil, err
+				}
+				v.Payload = x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&31 != 31 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeOAServiceError() (*OAServiceError, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &OAServiceError{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "code":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Code = x
+			case "message":
+				if seen&2 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 2
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Message = x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&3 != 3 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeOAHistoryReaderReadResult() (*OAHistoryReaderReadResult, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &OAHistoryReaderReadResult{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "value":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.decodePage()
+				if err != nil {
+					return nil, err
+				}
+				v.Value = *x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&1 != 1 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeOAHistoryObserverObserveResult() (*OAHistoryObserverObserveResult, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &OAHistoryObserverObserveResult{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "value":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.decodePage()
+				if err != nil {
+					return nil, err
+				}
+				v.Value = *x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&1 != 1 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
 func Decode(in []byte) (*Record, error) {
 	r := &reader{buf: in}
 	r.ws()
@@ -1635,7 +2413,7 @@ func Decode(in []byte) (*Record, error) {
 
 // Refusals is in the order two of them are chosen between.
 
-var Refusals = []string{"malformed", "bad_string", "number_spelling", "wrong_type", "bad_timestamp", "depth_exceeded", "duplicate_field", "unknown_field", "missing_field", "bad_schema", "trailing_bytes"}
+var Refusals = []string{"malformed", "bad_string", "number_spelling", "wrong_type", "bad_timestamp", "depth_exceeded", "duplicate_field", "unknown_field", "missing_field", "bad_schema", "bad_enum", "trailing_bytes"}
 
 func RefusalRank(word string) int {
 	for i, w := range Refusals {
@@ -1666,6 +2444,104 @@ func servicePayload(frame []byte) (*OAServiceFrame, error) {
 		return nil, DispatchError("unknown_version")
 	}
 	return v, nil
+}
+
+// ServiceName validates the request envelope and version for routing. The chosen
+// generated dispatcher validates service, method and typed arguments before use.
+func ServiceName(frame []byte) (string, error) {
+	v, err := servicePayload(frame)
+	if err != nil {
+		return "", err
+	}
+	return v.Service, nil
+}
+
+// ExchangeFrame returns the response associated with this call. Correlation,
+// serialization and deadlines belong to the transport, not this codec.
+type FrameExchanger interface{ ExchangeFrame([]byte) ([]byte, error) }
+type ServiceError struct {
+	Code    string
+	Message string
+}
+
+func (e *ServiceError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	return e.Code
+}
+func serviceResponse(frame []byte, service, method string) (Raw, error) {
+	r := &reader{buf: frame}
+	r.ws()
+	v, err := r.decodeOAServiceReply()
+	if err != nil {
+		return "", err
+	}
+	r.ws()
+	if r.pos != len(r.buf) {
+		return "", r.refuse("trailing_bytes")
+	}
+	if v.Version != 1 {
+		return "", DispatchError("unknown_version")
+	}
+	if v.Service != service || v.Method != method {
+		return "", DispatchError("mismatched_response")
+	}
+	if !v.Ok {
+		r = &reader{buf: []byte(v.Payload), depth: 1}
+		r.ws()
+		e, err := r.decodeOAServiceError()
+		if err != nil {
+			return "", err
+		}
+		r.ws()
+		if r.pos != len(r.buf) {
+			return "", r.refuse("trailing_bytes")
+		}
+		if e.Code == "" {
+			return "", DispatchError("invalid_error")
+		}
+		return "", &ServiceError{Code: e.Code, Message: e.Message}
+	}
+	return v.Payload, nil
+}
+func serviceReply(v *OAServiceFrame, payload Raw, err error) (frame []byte, outErr error) {
+	defer func() {
+		if p := recover(); p != nil {
+			if e, ok := p.(*Refusal); ok {
+				frame = nil
+				outErr = e
+			} else {
+				panic(p)
+			}
+		}
+	}()
+	reply := OAServiceReply{Version: 1, Service: v.Service, Method: v.Method, Ok: err == nil, Payload: payload}
+	if err != nil {
+		e := OAServiceError{Code: "handler_error", Message: "handler failed"}
+		switch x := err.(type) {
+		case *ServiceError:
+			if x.Code != "" {
+				e.Code = x.Code
+			}
+			e.Message = x.Message
+		case DispatchError:
+			e.Code = string(x)
+			e.Message = ""
+		case *Refusal:
+			e.Code = x.Word
+			e.Message = ""
+		}
+		reply.Payload = Raw(encOAServiceError(nil, &e, 1))
+	}
+	frame = encOAServiceReply(nil, &reply, 0)
+	// Validate even error diagnostics before making them visible on the wire.
+	r := &reader{buf: frame}
+	r.ws()
+	if _, e := r.decodeOAServiceReply(); e != nil {
+		return nil, e
+	}
+	return frame, nil
 }
 
 type Sink interface {
@@ -1724,4 +2600,264 @@ func (d *SinkDispatcher) WriteFrame(frame []byte) error {
 	default:
 		return DispatchError("unknown_method")
 	}
+}
+
+type HistoryReader interface {
+	Read(string, int64, int64) (Page, error)
+}
+type HistoryReaderTransport interface {
+	FrameExchanger
+}
+type HistoryReaderClient struct{ transport HistoryReaderTransport }
+
+func NewHistoryReaderClient(t HistoryReaderTransport) *HistoryReaderClient {
+	return &HistoryReaderClient{transport: t}
+}
+
+type HistoryReaderDispatcher struct{ Handler HistoryReader }
+
+func (c *HistoryReaderClient) Read(arg0 string, arg1 int64, arg2 int64) (result Page, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			if e, ok := p.(*Refusal); ok {
+				err = e
+			} else {
+				panic(p)
+			}
+		}
+	}()
+	args := OAHistoryReaderReadArguments{Cursor: arg0, MaxRecords: arg1, MaxBytes: arg2}
+	v := OAServiceFrame{Version: 1, Service: "abstraction.logging/reader@1", Method: "Read", Arguments: Raw(encOAHistoryReaderReadArguments(nil, &args, 1))}
+	frame := encOAServiceFrame(nil, &v, 0)
+	if _, err = servicePayload(frame); err != nil {
+		return
+	}
+	var response []byte
+	response, err = c.transport.ExchangeFrame(frame)
+	if err != nil {
+		return
+	}
+	var payload Raw
+	payload, err = serviceResponse(response, v.Service, v.Method)
+	if err != nil {
+		return
+	}
+	r := &reader{buf: []byte(payload), depth: 1}
+	r.ws()
+	var decoded *OAHistoryReaderReadResult
+	decoded, err = r.decodeOAHistoryReaderReadResult()
+	if err != nil {
+		return
+	}
+	_ = decoded
+	r.ws()
+	if r.pos != len(r.buf) {
+		err = r.refuse("trailing_bytes")
+		return
+	}
+	result = decoded.Value
+	return
+}
+func (d *HistoryReaderDispatcher) WriteFrame(frame []byte) error {
+	v, err := servicePayload(frame)
+	if err != nil {
+		return err
+	}
+	if v.Service != "abstraction.logging/reader@1" {
+		return DispatchError("unknown_service")
+	}
+	switch v.Method {
+	case "Read":
+		return DispatchError("wrong_mode")
+	default:
+		return DispatchError("unknown_method")
+	}
+}
+func (d *HistoryReaderDispatcher) ExchangeFrame(frame []byte) ([]byte, error) {
+	v, err := servicePayload(frame)
+	if err != nil {
+		return nil, err
+	}
+	if v.Service != "abstraction.logging/reader@1" {
+		return serviceReply(v, "", DispatchError("unknown_service"))
+	}
+	switch v.Method {
+	case "Read":
+		r := &reader{buf: []byte(v.Arguments), depth: 1}
+		r.ws()
+		args, err := r.decodeOAHistoryReaderReadArguments()
+		if err != nil {
+			return serviceReply(v, "", err)
+		}
+		r.ws()
+		if r.pos != len(r.buf) {
+			return serviceReply(v, "", r.refuse("trailing_bytes"))
+		}
+		payload, err := d.invokeRead(args)
+		return serviceReply(v, payload, err)
+	default:
+		return serviceReply(v, "", DispatchError("unknown_method"))
+	}
+}
+func (d *HistoryReaderDispatcher) invokeRead(args *OAHistoryReaderReadArguments) (payload Raw, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			payload = ""
+			if _, ok := p.(*Refusal); ok {
+				err = &ServiceError{Code: "invalid_result"}
+			} else {
+				err = &ServiceError{Code: "handler_error", Message: "handler failed"}
+			}
+		}
+	}()
+	var result Page
+	result, err = d.Handler.Read(args.Cursor, args.MaxRecords, args.MaxBytes)
+	if err != nil {
+		return
+	}
+	value := OAHistoryReaderReadResult{Value: result}
+	payload = Raw(encOAHistoryReaderReadResult(nil, &value, 1))
+	r := &reader{buf: []byte(payload), depth: 1}
+	r.ws()
+	if _, e := r.decodeOAHistoryReaderReadResult(); e != nil {
+		payload = ""
+		err = &ServiceError{Code: "invalid_result"}
+		return
+	}
+	r.ws()
+	if r.pos != len(r.buf) {
+		payload = ""
+		err = &ServiceError{Code: "invalid_result"}
+	}
+	return
+}
+
+type HistoryObserver interface {
+	Observe(string, int64, int64, int64) (Page, error)
+}
+type HistoryObserverTransport interface {
+	FrameExchanger
+}
+type HistoryObserverClient struct{ transport HistoryObserverTransport }
+
+func NewHistoryObserverClient(t HistoryObserverTransport) *HistoryObserverClient {
+	return &HistoryObserverClient{transport: t}
+}
+
+type HistoryObserverDispatcher struct{ Handler HistoryObserver }
+
+func (c *HistoryObserverClient) Observe(arg0 string, arg1 int64, arg2 int64, arg3 int64) (result Page, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			if e, ok := p.(*Refusal); ok {
+				err = e
+			} else {
+				panic(p)
+			}
+		}
+	}()
+	args := OAHistoryObserverObserveArguments{Cursor: arg0, MaxRecords: arg1, MaxBytes: arg2, WaitMs: arg3}
+	v := OAServiceFrame{Version: 1, Service: "abstraction.logging/observer@1", Method: "Observe", Arguments: Raw(encOAHistoryObserverObserveArguments(nil, &args, 1))}
+	frame := encOAServiceFrame(nil, &v, 0)
+	if _, err = servicePayload(frame); err != nil {
+		return
+	}
+	var response []byte
+	response, err = c.transport.ExchangeFrame(frame)
+	if err != nil {
+		return
+	}
+	var payload Raw
+	payload, err = serviceResponse(response, v.Service, v.Method)
+	if err != nil {
+		return
+	}
+	r := &reader{buf: []byte(payload), depth: 1}
+	r.ws()
+	var decoded *OAHistoryObserverObserveResult
+	decoded, err = r.decodeOAHistoryObserverObserveResult()
+	if err != nil {
+		return
+	}
+	_ = decoded
+	r.ws()
+	if r.pos != len(r.buf) {
+		err = r.refuse("trailing_bytes")
+		return
+	}
+	result = decoded.Value
+	return
+}
+func (d *HistoryObserverDispatcher) WriteFrame(frame []byte) error {
+	v, err := servicePayload(frame)
+	if err != nil {
+		return err
+	}
+	if v.Service != "abstraction.logging/observer@1" {
+		return DispatchError("unknown_service")
+	}
+	switch v.Method {
+	case "Observe":
+		return DispatchError("wrong_mode")
+	default:
+		return DispatchError("unknown_method")
+	}
+}
+func (d *HistoryObserverDispatcher) ExchangeFrame(frame []byte) ([]byte, error) {
+	v, err := servicePayload(frame)
+	if err != nil {
+		return nil, err
+	}
+	if v.Service != "abstraction.logging/observer@1" {
+		return serviceReply(v, "", DispatchError("unknown_service"))
+	}
+	switch v.Method {
+	case "Observe":
+		r := &reader{buf: []byte(v.Arguments), depth: 1}
+		r.ws()
+		args, err := r.decodeOAHistoryObserverObserveArguments()
+		if err != nil {
+			return serviceReply(v, "", err)
+		}
+		r.ws()
+		if r.pos != len(r.buf) {
+			return serviceReply(v, "", r.refuse("trailing_bytes"))
+		}
+		payload, err := d.invokeObserve(args)
+		return serviceReply(v, payload, err)
+	default:
+		return serviceReply(v, "", DispatchError("unknown_method"))
+	}
+}
+func (d *HistoryObserverDispatcher) invokeObserve(args *OAHistoryObserverObserveArguments) (payload Raw, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			payload = ""
+			if _, ok := p.(*Refusal); ok {
+				err = &ServiceError{Code: "invalid_result"}
+			} else {
+				err = &ServiceError{Code: "handler_error", Message: "handler failed"}
+			}
+		}
+	}()
+	var result Page
+	result, err = d.Handler.Observe(args.Cursor, args.MaxRecords, args.MaxBytes, args.WaitMs)
+	if err != nil {
+		return
+	}
+	value := OAHistoryObserverObserveResult{Value: result}
+	payload = Raw(encOAHistoryObserverObserveResult(nil, &value, 1))
+	r := &reader{buf: []byte(payload), depth: 1}
+	r.ws()
+	if _, e := r.decodeOAHistoryObserverObserveResult(); e != nil {
+		payload = ""
+		err = &ServiceError{Code: "invalid_result"}
+		return
+	}
+	r.ws()
+	if r.pos != len(r.buf) {
+		payload = ""
+		err = &ServiceError{Code: "invalid_result"}
+	}
+	return
 }

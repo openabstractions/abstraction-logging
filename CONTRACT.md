@@ -401,3 +401,47 @@ scenarios.
 | the identity chain | the walk, the binding and each attack in unit tests on both platforms; the real two-hop socket path on Linux | the two-hop path on Windows or macOS, where the kernel lookup is not written |
 | peer credentials | one kernel's own unit tests, in one language | every other platform; the lookup returns an error there |
 | the service | its unit tests, and as a real listener under the driver for the tier scenario | as a shipped daemon. Nothing ships one, and nothing this project runs writes where a reader could see |
+
+
+## Retained history service — abstraction.logging/reader@1
+
+`logging.thrift` defines HistoryReader and its bounded Page result. This service
+reads through the selected provider. The application supplies an opaque cursor
+and limits; the provider selects history storage and retention. Reading requires
+receiving-side Program evidence and the service account. Caller-supplied record
+attestations remain claims. Authorization precedes provider access.
+
+An empty cursor begins at the earliest retained record. A successful page preserves
+append order, returns at most 256 records and at most 65,536 generated record bytes,
+and supplies its continuation. Requested limits must be positive and within those
+caps. The encoded RPC envelope may add framing/indentation overhead; the shared
+transport also bounds the complete response. `at_end` describes the observed end
+for that call. Repeating the continuation can reveal later appends.
+
+A gap, invalid limit, unavailable history, corrupt record or oversized first record
+returns its typed outcome with no records and the original continuation. The caller
+explicitly chooses an empty cursor to restart after a gap. A refusal never skips
+a record. The first record must fit the requested byte budget to make progress.
+
+The current FileSink provider reads its existing append-only history under the
+same mutex as its writes. Cursors identify an open sink instance; reopening
+invalidates them and retained records remain available through an explicit fresh
+read. Detected file replacement or truncation returns gap. External in-place
+rewriting is outside this provider's supported append-only lifecycle: same-inode
+truncate-and-regrow between reads cannot be reliably detected. There is no owned
+retention mutation API in this slice. Complete retention/replay subscriptions
+remain implementation work.
+
+The read response confirms retrieved history. Sink.Write remains one-way and
+confirms transport submission only. A stopped or write-only provider cannot
+establish history availability. Runtime registration advertises the reader only
+for a provider implementing it; a logging host stopping withdraws both contracts.
+Caller waiting cancellation uses shared IPC and does not cancel accepted writes.
+Filesystem operations remain subject to OS completion; the client waiting budget
+does not promise an interruptible filesystem call inside the provider.
+
+Verification: `go test ./...` in logging/go exercises retained records, Unicode,
+pagination, append-at-end, invalid limits, oversized/corrupt data, reopen gaps and
+same-account service authorization. `conformance/clients/facade/run.py --run` builds
+an installed C++ consumer that resolves the history service and checks record
+content/provenance, continuation, gap and byte-limit refusal through Go services.

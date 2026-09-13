@@ -177,6 +177,9 @@ inline void enc_list(std::string& out, const std::vector<T>& v, int depth,
     out += ']';
 }
 
+inline const std::vector<std::string> kPageOutcomeNames = {"page", "gap", "unavailable", "invalid_request", "record_too_large", "corrupt", "unsupported"};
+inline const std::string kPageOutcomeUnknown = "refuse";
+
 struct Attestation {
     std::string by;
     bool verified = false;
@@ -202,8 +205,28 @@ struct Record {
     std::map<std::string, std::string> attrs;
 };
 
+struct Page {
+    std::string outcome;
+    std::vector<Record> records;
+    std::string next;
+    bool at_end = false;
+};
+
 struct OASinkWriteArguments {
     Record record;
+};
+
+struct OAHistoryReaderReadArguments {
+    std::string cursor;
+    std::int64_t max_records = 0;
+    std::int64_t max_bytes = 0;
+};
+
+struct OAHistoryObserverObserveArguments {
+    std::string cursor;
+    std::int64_t max_records = 0;
+    std::int64_t max_bytes = 0;
+    std::int64_t wait_ms = 0;
 };
 
 struct OAServiceFrame {
@@ -211,6 +234,27 @@ struct OAServiceFrame {
     std::string service;
     std::string method;
     Raw arguments;
+};
+
+struct OAServiceReply {
+    std::int32_t version = 0;
+    std::string service;
+    std::string method;
+    bool ok = false;
+    Raw payload;
+};
+
+struct OAServiceError {
+    std::string code;
+    std::string message;
+};
+
+struct OAHistoryReaderReadResult {
+    Page value;
+};
+
+struct OAHistoryObserverObserveResult {
+    Page value;
 };
 
 inline void enc_attestation(std::string& out, const Attestation& v, int depth) {
@@ -358,6 +402,37 @@ inline void enc_record(std::string& out, const Record& v, int depth) {
     out += '}';
 }
 
+inline void enc_page(std::string& out, const Page& v, int depth) {
+    if (v.outcome != "page" && v.outcome != "gap" && v.outcome != "unavailable" && v.outcome != "invalid_request" && v.outcome != "record_too_large" && v.outcome != "corrupt" && v.outcome != "unsupported") { throw Refusal("bad_enum",0); }
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "outcome");
+    out += ": ";
+    esc(out, v.outcome);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "records");
+    out += ": ";
+    enc_list<Record>(out, v.records, depth + 1, enc_record);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "next");
+    out += ": ";
+    esc(out, v.next);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "at_end");
+    out += ": ";
+    out += v.at_end ? "true" : "false";
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
 inline void enc_oasinkwritearguments(std::string& out, const OASinkWriteArguments& v, int depth) {
     out += '{';
     out += '\n';
@@ -365,6 +440,60 @@ inline void enc_oasinkwritearguments(std::string& out, const OASinkWriteArgument
     esc(out, "record");
     out += ": ";
     enc_record(out, v.record, depth + 1);
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_oahistoryreaderreadarguments(std::string& out, const OAHistoryReaderReadArguments& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "cursor");
+    out += ": ";
+    esc(out, v.cursor);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "max_records");
+    out += ": ";
+    num(out, v.max_records);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "max_bytes");
+    out += ": ";
+    num(out, v.max_bytes);
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_oahistoryobserverobservearguments(std::string& out, const OAHistoryObserverObserveArguments& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "cursor");
+    out += ": ";
+    esc(out, v.cursor);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "max_records");
+    out += ": ";
+    num(out, v.max_records);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "max_bytes");
+    out += ": ";
+    num(out, v.max_bytes);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "wait_ms");
+    out += ": ";
+    num(out, v.wait_ms);
     out += '\n';
     pad(out, depth);
     out += '}';
@@ -395,6 +524,84 @@ inline void enc_oaserviceframe(std::string& out, const OAServiceFrame& v, int de
     esc(out, "arguments");
     out += ": ";
     out += v.arguments;
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_oaservicereply(std::string& out, const OAServiceReply& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "version");
+    out += ": ";
+    num(out, v.version);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "service");
+    out += ": ";
+    esc(out, v.service);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "method");
+    out += ": ";
+    esc(out, v.method);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "ok");
+    out += ": ";
+    out += v.ok ? "true" : "false";
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "payload");
+    out += ": ";
+    out += v.payload;
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_oaserviceerror(std::string& out, const OAServiceError& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "code");
+    out += ": ";
+    esc(out, v.code);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "message");
+    out += ": ";
+    esc(out, v.message);
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_oahistoryreaderreadresult(std::string& out, const OAHistoryReaderReadResult& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "value");
+    out += ": ";
+    enc_page(out, v.value, depth + 1);
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_oahistoryobserverobserveresult(std::string& out, const OAHistoryObserverObserveResult& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "value");
+    out += ": ";
+    enc_page(out, v.value, depth + 1);
     out += '\n';
     pad(out, depth);
     out += '}';
@@ -836,8 +1043,15 @@ inline std::string write_timestamp(std::string_view s) {
 
 inline Attestation decode_attestation(Reader& r);
 inline Record decode_record(Reader& r);
+inline Page decode_page(Reader& r);
 inline OASinkWriteArguments decode_oasinkwritearguments(Reader& r);
+inline OAHistoryReaderReadArguments decode_oahistoryreaderreadarguments(Reader& r);
+inline OAHistoryObserverObserveArguments decode_oahistoryobserverobservearguments(Reader& r);
 inline OAServiceFrame decode_oaserviceframe(Reader& r);
+inline OAServiceReply decode_oaservicereply(Reader& r);
+inline OAServiceError decode_oaserviceerror(Reader& r);
+inline OAHistoryReaderReadResult decode_oahistoryreaderreadresult(Reader& r);
+inline OAHistoryObserverObserveResult decode_oahistoryobserverobserveresult(Reader& r);
 
 inline Attestation decode_attestation(Reader& r) {
     if (r.at() != '{') r.refuse("wrong_type");
@@ -978,6 +1192,54 @@ inline Record decode_record(Reader& r) {
     return v;
 }
 
+inline Page decode_page(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    Page v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "outcome") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.outcome = r.str();
+            } else if (key == "records") {
+                if (seen & 2u) r.refuse("duplicate_field");
+                seen |= 2u;
+                v.records = decode_list<Record>(r, decode_record);
+            } else if (key == "next") {
+                if (seen & 4u) r.refuse("duplicate_field");
+                seen |= 4u;
+                v.next = r.str();
+            } else if (key == "at_end") {
+                if (seen & 8u) r.refuse("duplicate_field");
+                seen |= 8u;
+                v.at_end = r.boolean();
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 15u) != 15u) r.refuse("missing_field");
+    if (v.outcome != "page" && v.outcome != "gap" && v.outcome != "unavailable" && v.outcome != "invalid_request" && v.outcome != "record_too_large" && v.outcome != "corrupt" && v.outcome != "unsupported") { r.refuse("bad_enum"); }
+    return v;
+}
+
 inline OASinkWriteArguments decode_oasinkwritearguments(Reader& r) {
     if (r.at() != '{') r.refuse("wrong_type");
     r.enter();
@@ -1010,6 +1272,96 @@ inline OASinkWriteArguments decode_oasinkwritearguments(Reader& r) {
     ++r.pos;
     --r.depth;
     if ((seen & 1u) != 1u) r.refuse("missing_field");
+    return v;
+}
+
+inline OAHistoryReaderReadArguments decode_oahistoryreaderreadarguments(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    OAHistoryReaderReadArguments v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "cursor") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.cursor = r.str();
+            } else if (key == "max_records") {
+                if (seen & 2u) r.refuse("duplicate_field");
+                seen |= 2u;
+                v.max_records = r.integer(INT64_MIN, INT64_MAX);
+            } else if (key == "max_bytes") {
+                if (seen & 4u) r.refuse("duplicate_field");
+                seen |= 4u;
+                v.max_bytes = r.integer(INT64_MIN, INT64_MAX);
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 7u) != 7u) r.refuse("missing_field");
+    return v;
+}
+
+inline OAHistoryObserverObserveArguments decode_oahistoryobserverobservearguments(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    OAHistoryObserverObserveArguments v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "cursor") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.cursor = r.str();
+            } else if (key == "max_records") {
+                if (seen & 2u) r.refuse("duplicate_field");
+                seen |= 2u;
+                v.max_records = r.integer(INT64_MIN, INT64_MAX);
+            } else if (key == "max_bytes") {
+                if (seen & 4u) r.refuse("duplicate_field");
+                seen |= 4u;
+                v.max_bytes = r.integer(INT64_MIN, INT64_MAX);
+            } else if (key == "wait_ms") {
+                if (seen & 8u) r.refuse("duplicate_field");
+                seen |= 8u;
+                v.wait_ms = r.integer(INT64_MIN, INT64_MAX);
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 15u) != 15u) r.refuse("missing_field");
     return v;
 }
 
@@ -1060,6 +1412,166 @@ inline OAServiceFrame decode_oaserviceframe(Reader& r) {
     return v;
 }
 
+inline OAServiceReply decode_oaservicereply(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    OAServiceReply v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "version") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.version = static_cast<std::int32_t>(r.integer(INT32_MIN, INT32_MAX));
+            } else if (key == "service") {
+                if (seen & 2u) r.refuse("duplicate_field");
+                seen |= 2u;
+                v.service = r.str();
+            } else if (key == "method") {
+                if (seen & 4u) r.refuse("duplicate_field");
+                seen |= 4u;
+                v.method = r.str();
+            } else if (key == "ok") {
+                if (seen & 8u) r.refuse("duplicate_field");
+                seen |= 8u;
+                v.ok = r.boolean();
+            } else if (key == "payload") {
+                if (seen & 16u) r.refuse("duplicate_field");
+                seen |= 16u;
+                v.payload = r.raw_value();
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 31u) != 31u) r.refuse("missing_field");
+    return v;
+}
+
+inline OAServiceError decode_oaserviceerror(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    OAServiceError v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "code") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.code = r.str();
+            } else if (key == "message") {
+                if (seen & 2u) r.refuse("duplicate_field");
+                seen |= 2u;
+                v.message = r.str();
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 3u) != 3u) r.refuse("missing_field");
+    return v;
+}
+
+inline OAHistoryReaderReadResult decode_oahistoryreaderreadresult(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    OAHistoryReaderReadResult v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "value") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.value = decode_page(r);
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 1u) != 1u) r.refuse("missing_field");
+    return v;
+}
+
+inline OAHistoryObserverObserveResult decode_oahistoryobserverobserveresult(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    OAHistoryObserverObserveResult v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "value") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.value = decode_page(r);
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 1u) != 1u) r.refuse("missing_field");
+    return v;
+}
+
 inline Record decode(std::string_view data) {
     Reader r{data};
     r.skip_ws();
@@ -1070,7 +1582,7 @@ inline Record decode(std::string_view data) {
 }
 
 // kRefusals is in the order two of them are chosen between.
-inline const std::vector<std::string> kRefusals = {"malformed", "bad_string", "number_spelling", "wrong_type", "bad_timestamp", "depth_exceeded", "duplicate_field", "unknown_field", "missing_field", "bad_schema", "trailing_bytes"};
+inline const std::vector<std::string> kRefusals = {"malformed", "bad_string", "number_spelling", "wrong_type", "bad_timestamp", "depth_exceeded", "duplicate_field", "unknown_field", "missing_field", "bad_schema", "bad_enum", "trailing_bytes"};
 
 inline int refusal_rank(std::string_view word) {
     for (std::size_t i = 0; i < kRefusals.size(); ++i)
@@ -1081,6 +1593,20 @@ inline int refusal_rank(std::string_view word) {
 struct FrameWriter{virtual ~FrameWriter()=default;virtual void WriteFrame(std::string_view)=0;};
 struct DispatchError:std::runtime_error{using std::runtime_error::runtime_error;};
 inline OAServiceFrame service_payload(std::string_view frame){Reader r{frame};r.skip_ws();auto v=decode_oaserviceframe(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");if(v.version!=1)throw DispatchError("unknown_version");return v;}
+// Validates the request envelope and version; dispatchers validate typed arguments.
+inline std::string service_name(std::string_view frame){return service_payload(frame).service;}
+
+struct FrameExchanger{virtual ~FrameExchanger()=default;virtual std::string ExchangeFrame(std::string_view)=0;};
+struct ServiceError:std::runtime_error{std::string code,message;ServiceError(std::string c,std::string m):std::runtime_error(m.empty()?c:m),code(c),message(m){}};
+inline Raw service_response(std::string_view frame,std::string_view service,std::string_view method){
+ Reader r{frame};r.skip_ws();auto v=decode_oaservicereply(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");if(v.version!=1)throw DispatchError("unknown_version");if(v.service!=service||v.method!=method)throw DispatchError("mismatched_response");
+ if(!v.ok){Reader e{v.payload};e.depth=1;e.skip_ws();auto error=decode_oaserviceerror(e);e.skip_ws();if(e.pos!=e.buf.size())e.refuse("trailing_bytes");if(error.code.empty())throw DispatchError("invalid_error");throw ServiceError(error.code,error.message);}return v.payload;
+}
+inline std::string service_reply(const OAServiceFrame& request,const Raw& payload,const ServiceError* error=nullptr){
+ OAServiceReply reply;reply.version=1;reply.service=request.service;reply.method=request.method;reply.ok=error==nullptr;reply.payload=payload;
+ if(error){OAServiceError e;e.code=error->code.empty()?"handler_error":error->code;e.message=error->message;reply.payload.clear();enc_oaserviceerror(reply.payload,e,1);}
+ std::string frame;enc_oaservicereply(frame,reply,0);Reader r{frame};r.skip_ws();decode_oaservicereply(r);return frame;
+}
 struct Sink{virtual ~Sink()=default;
 virtual void Write(const Record& arg0)=0;
 };
@@ -1090,11 +1616,87 @@ args.record=arg0;
 OAServiceFrame v;v.version=1;v.service="abstraction.logging/sink@1";v.method="Write";enc_oasinkwritearguments(v.arguments,args,1);std::string frame;enc_oaserviceframe(frame,v,0);service_payload(frame);
 transport_.WriteFrame(frame);}
 };
+struct SinkService{inline static constexpr std::string_view wire_name="abstraction.logging/sink@1";inline static constexpr std::string_view capability="abstraction.logging";template<class Transport>using Client=SinkClient<Transport>;};
 struct SinkDispatcher:FrameWriter{Sink&handler;explicit SinkDispatcher(Sink&h):handler(h){}
 void WriteFrame(std::string_view frame)override{auto v=service_payload(frame);if(v.service!="abstraction.logging/sink@1")throw DispatchError("unknown_service");
 if(v.method=="Write"){
 Reader r{v.arguments};r.depth=1;r.skip_ws();auto args=decode_oasinkwritearguments(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");handler.Write(args.record);return;}
 throw DispatchError("unknown_method");}
+};
+struct HistoryReader{virtual ~HistoryReader()=default;
+virtual Page Read(const std::string& arg0,const std::int64_t& arg1,const std::int64_t& arg2)=0;
+};
+template<class Transport>struct HistoryReaderClient:HistoryReader{Transport& transport_;explicit HistoryReaderClient(Transport&t):transport_(t){}
+Page Read(const std::string& arg0,const std::int64_t& arg1,const std::int64_t& arg2)override{OAHistoryReaderReadArguments args;
+args.cursor=arg0;
+args.max_records=arg1;
+args.max_bytes=arg2;
+OAServiceFrame v;v.version=1;v.service="abstraction.logging/reader@1";v.method="Read";enc_oahistoryreaderreadarguments(v.arguments,args,1);std::string frame;enc_oaserviceframe(frame,v,0);service_payload(frame);
+auto response=transport_.ExchangeFrame(frame);auto payload=service_response(response,v.service,v.method);Reader r{payload};r.depth=1;r.skip_ws();auto result=decode_oahistoryreaderreadresult(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");
+return result.value;
+}
+};
+struct HistoryReaderService{inline static constexpr std::string_view wire_name="abstraction.logging/reader@1";inline static constexpr std::string_view capability="abstraction.logging";template<class Transport>using Client=HistoryReaderClient<Transport>;};
+struct HistoryReaderDispatcher:FrameWriter,FrameExchanger{HistoryReader&handler;explicit HistoryReaderDispatcher(HistoryReader&h):handler(h){}
+void WriteFrame(std::string_view frame)override{auto v=service_payload(frame);if(v.service!="abstraction.logging/reader@1")throw DispatchError("unknown_service");
+if(v.method=="Read"){
+throw DispatchError("wrong_mode");}
+throw DispatchError("unknown_method");}
+std::string ExchangeFrame(std::string_view frame)override{auto v=service_payload(frame);if(v.service!="abstraction.logging/reader@1"){ServiceError e("unknown_service","");return service_reply(v,"",&e);}
+try{
+if(v.method=="Read"){
+Reader r{v.arguments};r.depth=1;r.skip_ws();auto args=decode_oahistoryreaderreadarguments(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");auto payload=invoke_Read(args);return service_reply(v,payload);}
+throw ServiceError("unknown_method","");}catch(const ServiceError&e){return service_reply(v,"",&e);}catch(const Refusal&e){ServiceError error(e.word,"");return service_reply(v,"",&error);}
+}
+Raw invoke_Read(const OAHistoryReaderReadArguments&args){
+Page result{};
+try{
+result=handler.Read(args.cursor,args.max_records,args.max_bytes);
+}catch(const ServiceError&){throw;}catch(...){throw ServiceError("handler_error","handler failed");}
+try{
+OAHistoryReaderReadResult value;
+value.value=result;
+Raw payload;enc_oahistoryreaderreadresult(payload,value,1);Reader r{payload};r.depth=1;r.skip_ws();decode_oahistoryreaderreadresult(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");return payload;
+}catch(...){throw ServiceError("invalid_result","");}
+}
+};
+struct HistoryObserver{virtual ~HistoryObserver()=default;
+virtual Page Observe(const std::string& arg0,const std::int64_t& arg1,const std::int64_t& arg2,const std::int64_t& arg3)=0;
+};
+template<class Transport>struct HistoryObserverClient:HistoryObserver{Transport& transport_;explicit HistoryObserverClient(Transport&t):transport_(t){}
+Page Observe(const std::string& arg0,const std::int64_t& arg1,const std::int64_t& arg2,const std::int64_t& arg3)override{OAHistoryObserverObserveArguments args;
+args.cursor=arg0;
+args.max_records=arg1;
+args.max_bytes=arg2;
+args.wait_ms=arg3;
+OAServiceFrame v;v.version=1;v.service="abstraction.logging/observer@1";v.method="Observe";enc_oahistoryobserverobservearguments(v.arguments,args,1);std::string frame;enc_oaserviceframe(frame,v,0);service_payload(frame);
+auto response=transport_.ExchangeFrame(frame);auto payload=service_response(response,v.service,v.method);Reader r{payload};r.depth=1;r.skip_ws();auto result=decode_oahistoryobserverobserveresult(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");
+return result.value;
+}
+};
+struct HistoryObserverService{inline static constexpr std::string_view wire_name="abstraction.logging/observer@1";inline static constexpr std::string_view capability="abstraction.logging";template<class Transport>using Client=HistoryObserverClient<Transport>;};
+struct HistoryObserverDispatcher:FrameWriter,FrameExchanger{HistoryObserver&handler;explicit HistoryObserverDispatcher(HistoryObserver&h):handler(h){}
+void WriteFrame(std::string_view frame)override{auto v=service_payload(frame);if(v.service!="abstraction.logging/observer@1")throw DispatchError("unknown_service");
+if(v.method=="Observe"){
+throw DispatchError("wrong_mode");}
+throw DispatchError("unknown_method");}
+std::string ExchangeFrame(std::string_view frame)override{auto v=service_payload(frame);if(v.service!="abstraction.logging/observer@1"){ServiceError e("unknown_service","");return service_reply(v,"",&e);}
+try{
+if(v.method=="Observe"){
+Reader r{v.arguments};r.depth=1;r.skip_ws();auto args=decode_oahistoryobserverobservearguments(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");auto payload=invoke_Observe(args);return service_reply(v,payload);}
+throw ServiceError("unknown_method","");}catch(const ServiceError&e){return service_reply(v,"",&e);}catch(const Refusal&e){ServiceError error(e.word,"");return service_reply(v,"",&error);}
+}
+Raw invoke_Observe(const OAHistoryObserverObserveArguments&args){
+Page result{};
+try{
+result=handler.Observe(args.cursor,args.max_records,args.max_bytes,args.wait_ms);
+}catch(const ServiceError&){throw;}catch(...){throw ServiceError("handler_error","handler failed");}
+try{
+OAHistoryObserverObserveResult value;
+value.value=result;
+Raw payload;enc_oahistoryobserverobserveresult(payload,value,1);Reader r{payload};r.depth=1;r.skip_ws();decode_oahistoryobserverobserveresult(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");return payload;
+}catch(...){throw ServiceError("invalid_result","");}
+}
 };
 
 }  // namespace abstraction::logging

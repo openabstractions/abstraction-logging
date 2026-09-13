@@ -7,12 +7,18 @@ import (
 	"os"
 )
 
-// Default is the handler a program should install: the machine's sink when
-// one is configured, else text on stderr — what slog does before anyone calls
-// SetDefault. An unconfigured daemon that says nothing is a defect in this
-// layer, and two daemons carried the same fallback before it lived here.
+// Default returns a handler bound lazily to the resolved logging service.
+// The first successful resolution is retained. Handle reports failures and never
+// falls back to a file or stderr. Standard slog.Logger discards Handler errors;
+// callers requiring a delivery error must invoke Handle or the typed client.
 func Default(program string) slog.Handler {
-	sink := Auto(program)
+	return NewHandler(newResolvedSink(), &Options{Program: program})
+}
+
+// LegacyDefault explicitly selects environment/file discovery and stderr when
+// unconfigured. It preserves the pre-service Default behavior for local adopters.
+func LegacyDefault(program string) slog.Handler {
+	sink := LegacyAuto(program)
 	if sink == Sink(DiscardSink{}) {
 		return slog.NewTextHandler(os.Stderr, nil)
 	}
@@ -63,7 +69,7 @@ func (h *Handler) Enabled(_ context.Context, l slog.Level) bool {
 	return Level(l) >= h.opts.Level
 }
 
-func (h *Handler) Handle(_ context.Context, r slog.Record) error {
+func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 	claim := Claim(h.opts.Program)
 	if h.opts.Claim != nil {
 		claim = *h.opts.Claim
@@ -94,6 +100,11 @@ func (h *Handler) Handle(_ context.Context, r slog.Record) error {
 	})
 	if len(attrs) > 0 {
 		rec.Attrs = attrs
+	}
+	if sink, ok := h.sink.(interface {
+		WriteContext(context.Context, Record) error
+	}); ok {
+		return sink.WriteContext(ctx, rec)
 	}
 	return h.sink.Write(rec)
 }

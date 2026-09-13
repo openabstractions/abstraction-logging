@@ -1,0 +1,8 @@
+{
+  "name": "@openabstractions/logging",
+  "version": "0.0.0",
+  "type": "module",
+  "exports": "./js/abstraction/logging/rec.mjs",
+  "files": ["js"],
+  "engines": {"node": ">=18"}
+}
