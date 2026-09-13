@@ -36,17 +36,11 @@ construct `abstraction::logging::Logger`. Both routes use the same generated
 
 ## Run the host
 
-In another process, using a locally built executable:
-
-```sh
-openabstractions serve logging --out ./logs/records.jsonl
-```
-
-The foreground host owns `--out`; the C++ application never opens that file.
-This command does not register an OS service. Both sides use the default framed
-endpoint unless `ABSTRACTION_LOG_ENDPOINT` overrides it. The host also accepts
-`--endpoint`. This endpoint is distinct from the legacy
-`ABSTRACTION_LOG_SERVICE` raw-record stream.
+Use an installed runtime and check `openabstractions start` followed by
+`openabstractions status`. The facade example needs its resolver and a compatible
+logging registration. A standalone `serve logging --out <path>` is an explicit
+provider host; connect to it only with a deliberately selected endpoint and
+independent server expectation. The host owns its output path.
 
 A successful `Log` or `Write` is **one-way local submission**, not a persistence
 receipt. `Write(const Record&)` is available when you already have a complete
@@ -61,6 +55,6 @@ C++17 and CMake 3.16 are required. This package exports
 packages or sibling source trees and does not download missing dependencies.
 
 See [the logging contract](../CONTRACT.md) and [the Thrift definition](../logging.thrift).
-The examples describe the new service-client path only. Other facade capabilities
-remain on their legacy implementations; this page makes no all-platform or
-installed-service conformance claim.
+The examples describe service-client source support. Release-specific evidence
+qualifies installed packages and platforms; other capabilities have their own
+contracts and client packages.
