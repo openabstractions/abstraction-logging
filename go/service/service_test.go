@@ -110,6 +110,11 @@ func TestGeneratedDispatchRejectsBeforeProvider(t *testing.T) {
 		if !observed.Verified || observed.Hop != 2 || observed.PID != os.Getpid() || observed.Exe == "invented.exe" {
 			t.Fatalf("wrong observation: %+v", observed)
 		}
+		// The stamp carries what the mechanism established: the resolved
+		// executable in exe, never a self-described name in program.
+		if observed.Exe == "" || observed.Program != "" {
+			t.Fatalf("service stamp must set exe and leave program empty: %+v", observed)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("valid request did not reach provider")
 	}

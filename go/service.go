@@ -95,14 +95,9 @@ func (s *ServiceSink) Close() error {
 	return nil
 }
 
-// Auto picks the best sink this machine has: a service if one is configured,
-// a file if one is configured, else a working no-op. Nothing above this call
-// chooses; where a record goes is a property of the machine.
-// Deprecated: Auto retains the legacy environment/file selection behavior.
-// Use Default for resolved service logging, or LegacyAuto for deliberate adoption.
-func Auto(program string) Sink { return LegacyAuto(program) }
-
-// LegacyAuto explicitly selects the legacy environment/file fallback provider.
+// LegacyAuto explicitly selects the legacy environment/file provider: a service
+// sink if one is configured, a file if one is configured, else a working no-op.
+// Applications use Default or the resolved logging client.
 func LegacyAuto(program string) Sink {
 	file := FromEnv()
 	if addr := os.Getenv(EnvService); addr != "" {
@@ -215,16 +210,31 @@ func (s *Server) handle(c net.Conn, peer Attestation, perr error) {
 // it could not. Nothing is removed and nothing is rewritten. The stamp is the
 // last hop of the result, and is the anchor to assess the record from.
 func (s *Server) Accept(rec Record, peer Attestation, perr error) Record {
+	// Work on copies: the caller's chain and attributes are never rewritten.
+	rec.Identity = append(Identity(nil), rec.Identity...)
+	attrs := make(map[string]string, len(rec.Attrs)+2)
+	for k, v := range rec.Attrs {
+		attrs[k] = v
+	}
+	if len(rec.Identity) == 0 {
+		// Hop 0 belongs to the writer [LOG-I1]. A record with no claim gets an
+		// explicit unattributed hop 0 rather than a refusal, so the line is kept
+		// [LOG-S3, LOG-S6] and says why it is unattributed [LOG-I9, LOG-I12].
+		rec.Identity = Identity{Unclaimed()}
+		attrs[AttrWriterClaim] = "absent"
+	}
 	if perr != nil {
-		if rec.Attrs == nil {
-			rec.Attrs = map[string]string{}
-		}
-		rec.Attrs["logging.peer_error"] = perr.Error()
+		attrs["logging.peer_error"] = perr.Error()
+	}
+	if len(attrs) > 0 {
+		rec.Attrs = attrs
+	}
+	if perr != nil {
 		return rec
 	}
 	stamp := peer
 	stamp.Hop = len(rec.Identity)
-	rec.Identity = append(append(Identity(nil), rec.Identity...), stamp)
+	rec.Identity = append(rec.Identity, stamp)
 	if s.Key != nil {
 		rec.Bind(stamp.Hop, s.KeyID, s.Key)
 	}

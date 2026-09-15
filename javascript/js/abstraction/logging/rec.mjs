@@ -899,6 +899,11 @@ function writeTimestamp(s) {
   return result;
 }
 
+// One hop of the provenance chain. program is the name a party gives itself and
+// appears on the writer's self claim. exe is the executable path the attesting
+// mechanism resolved for the party it established; a receiving service's stamp
+// sets exe and leaves program empty. user is the account name or Windows SID;
+// uid and gid are -1 where unestablished.
 export function newAttestation() {
   return { by: "", verified: false, hop: 0n, program: "", host: "", user: "", exe: "", uid: 0n, gid: 0n, pid: 0n, key: "", mac: "" };
 }
@@ -907,6 +912,11 @@ export function newRecord() {
   return { schema: 0n, time: "", level: 0n, msg: "", identity: [], job: "", attrs: {} };
 }
 
+// A bounded page in provider append order. next is an opaque continuation bound
+// to this history instance. at_end means the observed end during this call;
+// later records may appear. Refusals contain no records and never advance a
+// supplied cursor. gap requires an explicit restart with empty cursor; it never
+// silently restarts a stream.
 export function newPage() {
   return { outcome: "", records: [], next: "", at_end: false };
 }

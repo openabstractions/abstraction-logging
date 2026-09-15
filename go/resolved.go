@@ -10,7 +10,6 @@ import (
 	"github.com/openabstractions/abstraction-facade/go-core/bootstrap"
 	facade "github.com/openabstractions/abstraction-facade/go-core/go/abstraction/facade"
 	"github.com/openabstractions/abstraction-facade/go-core/resolution"
-	wire "github.com/openabstractions/abstraction-logging/go/abstraction/logging"
 	"github.com/openabstractions/abstraction-logging/go/client"
 )
 
@@ -29,15 +28,7 @@ type resolvedSink struct {
 // configuration. The selected logging binding is retained after resolution.
 // Handle exposes waiting and trust errors; slog.Logger normally discards them.
 func NewResolvedHandler(program, endpoint string, server listen.ServerExpectation) slog.Handler {
-	if server.Process != nil {
-		process := *server.Process
-		server.Process = &process
-	}
-	sink := newResolvedSink()
-	sink.selectInstalled = func(context.Context) (bootstrap.Selection, error) {
-		return bootstrap.Selection{Endpoint: endpoint, Server: server}, nil
-	}
-	return NewHandler(sink, &Options{Program: program})
+	return NewHandler(resolvedSinkFor(endpoint, server), &Options{Program: program})
 }
 
 func newResolvedSink() *resolvedSink         { return &resolvedSink{gate: make(chan struct{}, 1)} }
@@ -89,13 +80,5 @@ func (s *resolvedSink) WriteContext(ctx context.Context, r Record) error {
 	if err != nil {
 		return err
 	}
-	encoded, err := r.Encode()
-	if err != nil {
-		return err
-	}
-	record, err := wire.Decode(encoded)
-	if err != nil {
-		return err
-	}
-	return c.WriteContext(ctx, *record)
+	return clientSink{client: c}.WriteContext(ctx, r)
 }

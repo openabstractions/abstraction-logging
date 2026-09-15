@@ -43,6 +43,10 @@ const SchemaVersion = 1
 // Level is deliberately the numeric scale slog uses (Debug -4, Info 0, Warn 4,
 // Error 8) rather than an enum of names.
 //
+// Level equals slog.Level: the same numbers, and String gives the same names.
+// Convert with Level(l) and slog.Level(v); nothing is mapped.
+// TestLevelScaleIsSlogLevel fails if either scale changes.
+//
 // Numbers survive translation between languages that disagree about which levels
 // exist. Python has no TRACE and no FATAL; Go has no CRITICAL; java.util.logging
 // has SEVERE and FINEST. A name-based format forces every binding to invent a

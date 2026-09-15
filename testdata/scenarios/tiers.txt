@@ -10,6 +10,10 @@
 # actually landed. A configured service that nothing is listening on is still
 # the rung, and every record it takes goes below it -- which is why a degraded
 # service must not be reported as a degraded configuration.
+#
+# `default` asks for the environment-chain default handler, the one LOG-S8
+# covers. The service-resolved default is a separate entry point and has no
+# step here.
 machine none
 auto A
 separation A

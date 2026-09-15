@@ -59,7 +59,14 @@ func OpenFileSink(path string) (*FileSink, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+	// Writers that open a new sink together race to create it. On darwin a
+	// creator that loses a plain O_CREAT race can fail with ENOENT
+	// (golang/go#81246). O_EXCL makes the loser see ErrExist, and the loser
+	// then opens the file the winner created.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|os.O_APPEND, 0o644)
+	if errors.Is(err, os.ErrExist) {
+		f, err = os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o644)
+	}
 	if err != nil {
 		return nil, err
 	}

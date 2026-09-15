@@ -45,7 +45,7 @@ func TestObservationNotifyCapacityCancelAndShutdown(t *testing.T) {
 	if e != nil || p.Outcome != wire.PageOutcomeUnavailable {
 		t.Fatalf("capacity %+v %v", p, e)
 	}
-	if e = s.Write(Record{Schema: 1, Time: Timestamp{time.Now().UTC()}, Msg: "wake"}); e != nil {
+	if e = s.Write(Record{Schema: 1, Time: Timestamp{Time: time.Now().UTC()}, Msg: "wake"}); e != nil {
 		t.Fatal(e)
 	}
 	for i := 0; i < MaxHistoryWaiters; i++ {
@@ -100,7 +100,7 @@ func TestObservationExpirySlowReaderAndRestartGap(t *testing.T) {
 	}
 	cursor := p.Next
 	for i := 0; i < 5; i++ {
-		if e = s.Write(Record{Schema: 1, Time: Timestamp{time.Now().UTC()}, Msg: "later"}); e != nil {
+		if e = s.Write(Record{Schema: 1, Time: Timestamp{Time: time.Now().UTC()}, Msg: "later"}); e != nil {
 			t.Fatal(e)
 		}
 	}
@@ -135,7 +135,7 @@ func TestObservationCapturedGenerationSurvivesEarlyWrite(t *testing.T) {
 	s.mu.Lock()
 	generation := s.historyChanged
 	s.mu.Unlock()
-	if e = s.Write(Record{Schema: 1, Time: Timestamp{time.Now().UTC()}, Msg: "early"}); e != nil {
+	if e = s.Write(Record{Schema: 1, Time: Timestamp{Time: time.Now().UTC()}, Msg: "early"}); e != nil {
 		t.Fatal(e)
 	}
 	select {
@@ -168,7 +168,7 @@ func TestObservationExpiryRereadsWithoutNotification(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	record := Record{Schema: 1, Time: Timestamp{time.Now().UTC()}, Msg: "expiry"}
+	record := Record{Schema: 1, Time: Timestamp{Time: time.Now().UTC()}, Msg: "expiry"}
 	encoded, e := record.Encode()
 	if e != nil {
 		t.Fatal(e)

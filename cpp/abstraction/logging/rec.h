@@ -180,6 +180,11 @@ inline void enc_list(std::string& out, const std::vector<T>& v, int depth,
 inline const std::vector<std::string> kPageOutcomeNames = {"page", "gap", "unavailable", "invalid_request", "record_too_large", "corrupt", "unsupported"};
 inline const std::string kPageOutcomeUnknown = "refuse";
 
+// One hop of the provenance chain. program is the name a party gives itself and
+// appears on the writer's self claim. exe is the executable path the attesting
+// mechanism resolved for the party it established; a receiving service's stamp
+// sets exe and leaves program empty. user is the account name or Windows SID;
+// uid and gid are -1 where unestablished.
 struct Attestation {
     std::string by;
     bool verified = false;
@@ -205,6 +210,11 @@ struct Record {
     std::map<std::string, std::string> attrs;
 };
 
+// A bounded page in provider append order. next is an opaque continuation bound
+// to this history instance. at_end means the observed end during this call;
+// later records may appear. Refusals contain no records and never advance a
+// supplied cursor. gap requires an explicit restart with empty cursor; it never
+// silently restarts a stream.
 struct Page {
     std::string outcome;
     std::vector<Record> records;

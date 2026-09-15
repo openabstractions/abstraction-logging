@@ -1,0 +1,1 @@
+{"schema":1,"time":"1970-01-01T00:00:00.000000Z","level":0,"msg":"no writer claim","identity":[{"by":"unclaimed","verified":false,"hop":0,"uid":-1,"gid":-1,"pid":-1},{"by":"identity/windows","verified":true,"hop":1,"user":"S-1-5-21-1-2-3-1001","exe":"C:\\Users\\oa\\Python312\\python.exe","uid":-1,"gid":-1,"pid":4242}],"attrs":{"logging.writer_claim":"absent"}}

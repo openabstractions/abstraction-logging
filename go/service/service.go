@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	identity "github.com/openabstractions/abstraction-identity"
 	"github.com/openabstractions/abstraction-identity/listen"
 	logging "github.com/openabstractions/abstraction-logging/go"
 	wire "github.com/openabstractions/abstraction-logging/go/abstraction/logging"
@@ -27,6 +28,9 @@ type Host struct {
 	workers   sync.WaitGroup
 	calls     chan struct{}
 	observers chan struct{}
+	lifecycle sync.Mutex
+	serving   bool
+	history   HistoryPolicy
 	// OnError reports refused requests and provider failures to the host operator.
 	// It may be called concurrently. It is never a response to a one-way call.
 	OnError func(error)
@@ -96,7 +100,10 @@ func (h *Host) Serve(ctx context.Context) error {
 				defer call.Close()
 			}
 			if err == nil {
-				handler := &receiver{out: h.out, call: call, owner: h.owner, observers: h.observers}
+				h.lifecycle.Lock()
+				policy := h.history
+				h.lifecycle.Unlock()
+				handler := &receiver{out: h.out, call: call, owner: h.owner, observers: h.observers, history: policy, ctx: requestContext}
 				var name string
 				name, err = wire.ServiceName(call.Frame)
 				if err == nil {
@@ -132,6 +139,39 @@ type receiver struct {
 	call      *listen.FramedCall
 	owner     string
 	observers chan struct{}
+	history   HistoryPolicy
+	ctx       context.Context
+}
+
+// History policy refusal codes returned as service errors.
+const (
+	CodeForbidden         = "forbidden"
+	CodePolicyUnavailable = "policy_unavailable"
+)
+
+// HistoryPolicy authorizes history reading and observation for the rechecked
+// receiving peer, after same-account proof and before records are read or
+// returned. It must honor ctx and be safe for concurrent calls. Wrap
+// ErrHistoryPolicyUnavailable when the decision cannot be obtained; every other
+// error is a refusal.
+type HistoryPolicy func(context.Context, *identity.Peer) error
+
+// ErrHistoryPolicyUnavailable distinguishes a failed decision lookup from refusal.
+var ErrHistoryPolicyUnavailable = errors.New("logging service: history policy unavailable")
+
+// EnableHistoryPolicy narrows history reading and observation to callers the
+// policy authorizes. Configure it before Serve. Writes are unaffected.
+func (h *Host) EnableHistoryPolicy(policy HistoryPolicy) error {
+	h.lifecycle.Lock()
+	defer h.lifecycle.Unlock()
+	if h.serving || h.ctx.Err() != nil {
+		return errors.New("logging service: configure history policy before Serve")
+	}
+	if policy == nil {
+		return errors.New("logging service: explicit history policy required")
+	}
+	h.history = policy
+	return nil
 }
 
 func (r *receiver) Write(value wire.Record) error {
@@ -194,7 +234,21 @@ func (r *receiver) authorizeHistory() error {
 	if principal == "" || principal != r.owner {
 		return &wire.ServiceError{Code: "wrong_user", Message: "history belongs to another user"}
 	}
-	return nil
+	if r.history == nil {
+		return nil
+	}
+	ctx := r.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	err = r.history(ctx, peer)
+	if err == nil && ctx.Err() == nil {
+		return nil
+	}
+	if ctx.Err() != nil || errors.Is(err, ErrHistoryPolicyUnavailable) {
+		return &wire.ServiceError{Code: CodePolicyUnavailable, Message: "history policy decision unavailable"}
+	}
+	return &wire.ServiceError{Code: CodeForbidden, Message: "history reading not permitted"}
 }
 
 func (r *receiver) Read(cursor string, maxRecords, maxBytes int64) (wire.Page, error) {

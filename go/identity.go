@@ -60,6 +60,22 @@ const BySelf = "self"
 // ByPeerCred is the kernel answering about a unix socket peer.
 const ByPeerCred = "so_peercred"
 
+// ByUnclaimed names hop 0 of a record that reached a receiving service with no
+// writer claim [LOG-I16]. It states that the writer said nothing about itself
+// and asserts nothing else; it is never verified.
+const ByUnclaimed = "unclaimed"
+
+// AttrWriterClaim is set to "absent" on a record whose hop 0 the receiving
+// service supplied as Unclaimed.
+const AttrWriterClaim = "logging.writer_claim"
+
+// Unclaimed is the explicit unattributed hop 0 a receiving service inserts in
+// front of its own stamp when the record carries no chain at all, so that its
+// stamp stays hop 1, the attestation about the writer [LOG-I1, LOG-I7].
+func Unclaimed() Attestation {
+	return Attestation{By: ByUnclaimed, Verified: false, Hop: 0, UID: Unknown, GID: Unknown, PID: Unknown}
+}
+
 // Claim is the writer's own description of itself: hop 0, never verified,
 // recorded because almost nothing is lying and when something is, the claim is
 // the evidence.

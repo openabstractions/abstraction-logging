@@ -17,7 +17,7 @@ func TestHistoryBoundsContinuationAndGap(t *testing.T) {
 	defer s.Close()
 	write := func(msg string) {
 		t.Helper()
-		if err := s.Write(Record{Schema: 1, Time: Timestamp{time.Now().UTC()}, Msg: msg, Attrs: map[string]string{"unicode": "日本語\n"}}); err != nil {
+		if err := s.Write(Record{Schema: 1, Time: Timestamp{Time: time.Now().UTC()}, Msg: msg, Attrs: map[string]string{"unicode": "日本語\n"}}); err != nil {
 			t.Fatal(err)
 		}
 	}

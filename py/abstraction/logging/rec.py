@@ -150,6 +150,11 @@ PAGEOUTCOME_NAMES = ["page", "gap", "unavailable", "invalid_request", "record_to
 PAGEOUTCOME_UNKNOWN = "refuse"
 
 
+# One hop of the provenance chain. program is the name a party gives itself and
+# appears on the writer's self claim. exe is the executable path the attesting
+# mechanism resolved for the party it established; a receiving service's stamp
+# sets exe and leaves program empty. user is the account name or Windows SID;
+# uid and gid are -1 where unestablished.
 class Attestation:
     def __init__(self, **kw):
         self.by = kw.get("by", "")
@@ -177,6 +182,11 @@ class Record:
         self.attrs = kw.get("attrs", {})
 
 
+# A bounded page in provider append order. next is an opaque continuation bound
+# to this history instance. at_end means the observed end during this call;
+# later records may appear. Refusals contain no records and never advance a
+# supplied cursor. gap requires an explicit restart with empty cursor; it never
+# silently restarts a stream.
 class Page:
     def __init__(self, **kw):
         self.outcome = kw.get("outcome", "")

@@ -127,12 +127,17 @@ func (p *replay) apply(f []string) string {
 		}
 		return "ok name=" + logging.Level(n).String()
 	case "record":
+		// record <alias> <level> [bare]: bare is a record whose writer sent no
+		// claim at all, the input LOG-I16 is about.
 		n, err := strconv.Atoi(arg(2))
-		if err != nil || arg(1) == "" {
+		if err != nil || arg(1) == "" || (arg(3) != "" && arg(3) != "bare") || len(f) > 4 {
 			return "invalid"
 		}
 		r := &logging.Record{Schema: logging.SchemaVersion, Time: logging.At(time.Unix(0, 0).UTC()),
 			Level: logging.Level(n), Msg: "hello", Identity: logging.Identity{logging.Claim("replay")}}
+		if arg(3) == "bare" {
+			r.Identity = nil
+		}
 		p.records[arg(1)] = r
 		delete(p.anchors, arg(1))
 		return fmt.Sprintf("ok schema=%d", r.Schema)
@@ -220,7 +225,7 @@ func (p *replay) apply(f []string) string {
 		if arg(1) == "" {
 			return "invalid"
 		}
-		s := logging.Auto("replay")
+		s := logging.LegacyAuto("replay")
 		st := &sinkState{sink: s}
 		switch v := s.(type) {
 		case *logging.ServiceSink:
@@ -232,7 +237,11 @@ func (p *replay) apply(f []string) string {
 		p.sinks[arg(1)] = st
 		return "ok tier=" + tier(s)
 	case "default":
-		if _, ok := logging.Default("replay").(*logging.Handler); ok {
+		// The handler the machine's environment chain gives a program, the same
+		// chain `auto` reads [LOG-S1, LOG-S2, LOG-S8]. LOG-S8 covers this
+		// environment-chain default only. logging.Default resolves the runtime
+		// service instead, never reads that chain, and has no step here.
+		if _, ok := logging.LegacyDefault("replay").(*logging.Handler); ok {
 			return "ok out=sink"
 		}
 		return "ok out=stderr"

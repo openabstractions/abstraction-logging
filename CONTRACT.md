@@ -154,11 +154,15 @@ other oversized record shrinks.
 [LOG-S7]. A record reaching two of three places beats an exception in the
 caller's hot path.
 
-**The handler a program installs is heard even when the machine offers nothing**
-[LOG-S8]. Where the chain lands on nothing, the default handler is the
-language's own text output on the standard error stream rather than a discard:
-a daemon nobody configured that says nothing at all is a defect in this layer,
-and two daemons carried that fallback themselves before it lived here.
+**The handler a program installs from the environment chain is heard even when
+the machine offers nothing** [LOG-S8]. The rule covers the environment-chain
+default, which in Go is `LegacyDefault` over the chain `LegacyAuto` reads.
+Where that chain lands on nothing, the default handler is the language's own
+text output on the standard error stream. A daemon nobody configured that says
+nothing at all is a defect in this layer, and two daemons carried that fallback
+themselves before it lived here. The service-resolved default, Go `Default`,
+reports an absent runtime as a write error. Its planned fallback is a native
+logger that the adopter installs explicitly beside the facade.
 
 ---
 
@@ -179,6 +183,18 @@ subject of hop 1 is the writer; the subject of every later hop is a relay.
 **The writer's own attestation names the mechanism `self` and is never
 verified** [LOG-I2]. It is recorded anyway: almost nothing is lying, and when
 something is, the claim is the evidence.
+
+**A record that reaches a receiving service with no chain gets an explicit
+unattributed hop 0, `unclaimed`, in front of the service's stamp** [LOG-I16].
+The hop is never verified, carries -1 for every numeric identity and nothing
+else, and the record gains the attribute `logging.writer_claim = absent`. Hop 0
+belongs to the writer (`LOG-I1`); without this hop the service's stamp would
+sit at hop 0 and the attestation about the writer would never be hop 1
+(`LOG-I7`). Refusing the record would drop a line because its writer said
+nothing about itself, which `LOG-S3` and `LOG-S6` do not allow a sink to do.
+The inserted hop says why the record is unattributed (`LOG-I9`, `LOG-I12`), it
+is not the writer's claim (`LOG-I2`), and a chain the writer did send is kept
+as it arrived (`LOG-I4`).
 
 **An attestation names the mechanism that answered, never the party** [LOG-I3].
 A reader that does not recognise a mechanism treats the attestation as
@@ -292,6 +308,17 @@ indistinguishable from one that determined the superuser.
 **Where the platform's attester cannot answer, the record records that it could
 not** [LOG-I12]. The line stays unattributed for a stated reason rather than
 looking unattributed for an unknown one.
+
+**What each attestation field carries.** `program` is the name a party gives
+itself; the writer's `self` claim at hop 0 carries it. `exe` is the executable
+path the attesting mechanism resolved for the party it established:
+`so_peercred` reads it from the process table, `identity/<os>` from the
+receiving boundary's program evidence. A receiving service's own stamp leaves
+`program` empty, because a name is a claim and a stamp holds only what its
+mechanism established. `user` is the account name or the Windows SID; `uid` and
+`gid` stay -1 where the platform has no numeric identity (`LOG-I11`). Readers
+compare the writer's `program` with the stamp's `exe` as claim against evidence
+(`LOG-I10`) and never copy one into the other.
 
 ### What this design cannot refuse, stated
 

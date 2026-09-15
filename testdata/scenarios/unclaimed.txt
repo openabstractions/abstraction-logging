@@ -1,0 +1,38 @@
+# requires: logging
+#
+# A record whose writer said nothing about itself reaches a receiving service.
+# Hop 0 belongs to the writer, so the service puts an explicit unattributed
+# hop 0 in front of its own stamp, marks the record, and keeps the line. Its
+# stamp is then hop 1, the attestation about the writer, and the author can be
+# found. A writer that did send a claim keeps it as hop 0, and a platform whose
+# attester answered nothing still leaves hop 0 to the writer.
+record R 0 bare
+chain R
+keys R
+attest R so_peercred
+chain R
+read R logging.writer_claim
+author R
+relay R
+disputed R
+record C 0
+attest C so_peercred
+chain C
+read C logging.writer_claim
+record P 0 bare
+attest P none
+chain P
+author P
+
+# expect 1: ok schema=1 [LOG-R2]
+# expect 2: ok - [LOG-I16]
+# expect 3: ok - [LOG-I16]
+# expect 5: ok 0:unclaimed:claimed 1:so_peercred:established [LOG-I16] [LOG-I1] [LOG-I6]
+# expect 6: ok type=string value=absent [LOG-I16] [LOG-I9]
+# expect 7: ok by=so_peercred hop=1 [LOG-I7] [LOG-I16]
+# expect 8: ok by=so_peercred hop=1 [LOG-I8]
+# expect 9: ok disputed=no [LOG-I10]
+# expect 12: ok 0:self:claimed 1:so_peercred:established [LOG-I4] [LOG-I16]
+# expect 13: no-answer absent [LOG-I16]
+# expect 16: ok 0:unclaimed:claimed [LOG-I12] [LOG-I16]
+# expect 17: no-answer unattributed [LOG-I9]

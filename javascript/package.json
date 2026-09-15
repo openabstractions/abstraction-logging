@@ -1,6 +1,17 @@
 {
   "name": "@openabstractions/logging",
   "version": "0.0.0",
+  "description": "Generated JavaScript clients and codecs for log submission, history reading and history observation.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/openabstractions/abstraction-logging.git",
+    "directory": "javascript"
+  },
+  "homepage": "https://github.com/openabstractions/abstraction-logging#readme",
+  "bugs": {
+    "url": "https://github.com/openabstractions/abstraction-logging/issues"
+  },
   "type": "module",
   "exports": "./js/abstraction/logging/rec.mjs",
   "files": ["js"],

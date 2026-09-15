@@ -159,9 +159,9 @@ func TestTimestampIsFixedWidth(t *testing.T) {
 func TestUnconfiguredIsAWorkingNoop(t *testing.T) {
 	os.Unsetenv(EnvSink)
 	os.Unsetenv(EnvService)
-	s := Auto("p")
+	s := LegacyAuto("p")
 	if _, ok := s.(DiscardSink); !ok {
-		t.Fatalf("unconfigured Auto returned %T, want DiscardSink", s)
+		t.Fatalf("unconfigured LegacyAuto returned %T, want DiscardSink", s)
 	}
 	if err := s.Write(Record{Msg: "x"}); err != nil {
 		t.Fatalf("discarding must not fail: %v", err)
