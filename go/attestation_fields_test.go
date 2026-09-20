@@ -47,7 +47,7 @@ func TestAttestationFieldsReadAlike(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, a := range generated.Identity {
-		got := hop{a.By, a.Program, a.User, a.Exe, a.Verified, a.Uid}
+		got := hop{a.By, a.Program, a.User, a.Exe, a.Verified, a.UID}
 		if got != want[i] || a.Hop != int64(i) {
 			t.Fatalf("generated reader hop %d: %+v", i, a)
 		}

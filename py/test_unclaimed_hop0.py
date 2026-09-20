@@ -6,7 +6,7 @@ receiving service. This proves the reader keeps the service's unclaimed hop 0.
 from pathlib import Path
 import unittest
 
-from abstraction.logging import rec
+import abstraction.logging as rec
 
 DATA = Path(__file__).resolve().parents[1] / "testdata" / "records" / "unclaimed-hop0.jsonl"
 

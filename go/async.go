@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"math/rand/v2"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -19,68 +23,107 @@ var ErrSinkClosed = errors.New("logging: asynchronous sink closed")
 // undelivered at the caller's deadline.
 var ErrCloseDeadline = errors.New("logging: asynchronous sink close deadline reached")
 
-// ErrWriteTimeout marks a record counted as Failed because its delivery did not
-// return within AsyncOptions.WriteTimeout, or because an earlier timed-out
-// delivery had still not returned within the record's own write timeout.
+// ErrWriteTimeout marks a delivery that did not return within
+// AsyncOptions.WriteTimeout, or that waited that long for an earlier timed-out
+// delivery to return.
 var ErrWriteTimeout = errors.New("logging: asynchronous sink delivery exceeded its write timeout")
 
-// DefaultAsyncCapacity is the queue bound when AsyncOptions.Capacity is zero.
-const DefaultAsyncCapacity = 1024
+const (
+	// DefaultAsyncCapacity is the queue bound when AsyncOptions.Capacity is zero.
+	DefaultAsyncCapacity = 1024
+	// DefaultWriteTimeout bounds each delivery when AsyncOptions.WriteTimeout is zero.
+	DefaultWriteTimeout = 5 * time.Second
+	// DefaultInitialBackoff is the wait before the first retry [LOG-S12].
+	DefaultInitialBackoff = 100 * time.Millisecond
+	// DefaultMaxBackoff caps the doubling wait between retries [LOG-S12].
+	DefaultMaxBackoff = 5 * time.Second
+	// BackoffJitter varies each wait by up to this fraction either way.
+	BackoffJitter = 0.2
+	// GapMessage is the message of the WARN record a recovery delivers [LOG-S13].
+	GapMessage = "records dropped while the sink was unreachable"
+)
+
+// Rebinder is a sink that can resolve its service again. AsyncSink calls
+// Rebind after a failed delivery and before each retry.
+type Rebinder interface {
+	Rebind(context.Context) error
+}
 
 // AsyncOptions configures NewAsyncSink. Callbacks run on the goroutine that
-// observed the transition, outside the sink's lock; they must not block.
+// observed the transition, outside the sink's lock, before the sink continues;
+// they must not block. With none of the three callbacks set, the sink reports
+// each transition as one line on standard error [LOG-S13].
 type AsyncOptions struct {
-	// Capacity is the number of records the queue holds; zero means
-	// DefaultAsyncCapacity.
+	// Capacity is the number of records the queue holds, counting the record
+	// being delivered; zero means DefaultAsyncCapacity.
 	Capacity int
-	// WriteTimeout bounds each delivery. Zero leaves deliveries unbounded, and a
-	// hung inner sink then holds the delivery goroutine until Close.
+	// WriteTimeout bounds each delivery and each rebind; zero means
+	// DefaultWriteTimeout, and a negative value leaves deliveries unbounded.
 	//
-	// When set, deliveries run on a goroutine of their own. A delivery that has
-	// not returned in time is cancelled (for an inner sink with WriteContext),
-	// counted as Failed with ErrWriteTimeout and reported through OnFailure, and
-	// the next record is taken. An inner sink that ignores cancellation keeps
-	// running: a record whose turn comes before it returns waits for it within
-	// its own WriteTimeout and then fails with ErrWriteTimeout, so the inner sink
-	// is never called concurrently. A record whose delivery timed out may still
-	// arrive.
+	// A bounded delivery runs on a goroutine of its own. A delivery that has not
+	// returned in time is cancelled (for an inner sink with WriteContext) and is
+	// a failed delivery with ErrWriteTimeout. An inner sink that ignores
+	// cancellation keeps running: the next delivery waits for it within its own
+	// timeout, so the inner sink is never called concurrently. A record whose
+	// delivery timed out may still arrive, and its retry delivers it again.
 	WriteTimeout time.Duration
-	// OnOverflow runs when a record is dropped after one was accepted: once per
-	// run of drops.
+	// InitialBackoff and MaxBackoff shape the wait between retries; zero means
+	// DefaultInitialBackoff and DefaultMaxBackoff.
+	InitialBackoff, MaxBackoff time.Duration
+	// Program names the hop-0 claim of the gap record.
+	Program string
+	// Rebind resolves the service again. Nil uses the inner sink's Rebind when
+	// it is a Rebinder, and otherwise retries the same inner sink.
+	Rebind func(context.Context) error
+	// OnOverflow runs on the first dropped record since the queue was last empty:
+	// once per run of drops, however often the queue refills before it drains.
 	OnOverflow func(AsyncCounts)
-	// OnFailure runs when a delivery fails after the previous one succeeded (or
-	// before any did): once per run of failures.
+	// OnFailure runs when a delivery fails after the previous one succeeded,
+	// once the first rebind attempt returned. The error is that rebind's error
+	// when it failed, and the delivery's error otherwise.
 	OnFailure func(error, AsyncCounts)
-	// OnRecovery runs on the first successful delivery after a failure.
+	// OnRecovery runs when a retry delivered the gap record.
 	OnRecovery func(AsyncCounts)
 }
 
-// AsyncCounts is a snapshot of an AsyncSink. Every record handed to Write is
-// exactly one of Dropped, or Accepted; every accepted record ends as exactly one
-// of Written, Failed or Abandoned, or is still Queued or in flight.
+// AsyncCounts is a snapshot of an AsyncSink [LOG-S13]. Every record handed to
+// Write is exactly one of Dropped or Accepted; every accepted record ends as
+// exactly one of Written, Failed or Abandoned, or is still Queued.
 type AsyncCounts struct {
 	Accepted, Dropped          uint64
 	Written, Failed, Abandoned uint64
 	Queued                     int
-	Overflowing, Failing       bool
+	Failing                    bool
 	LastError                  string
 }
 
 // AsyncSink delivers records to another Sink on one background goroutine, so a
-// slow or stalled service costs the logging caller nothing. The queue is
-// bounded: a full queue drops the newest record, counts it and returns
-// ErrQueueFull. Deliveries keep the same failure accounting as a synchronous
-// sink. Records reach the inner sink in the order they were accepted.
+// slow, stalled or restarting service costs the logging caller nothing
+// [LOG-S12]. The queue is bounded: a full queue drops the newest record, counts
+// it and returns ErrQueueFull. A failed delivery keeps its record at the head of
+// the queue, rebinds, and retries with backoff until it is delivered or Close
+// reaches its deadline. Records reach the inner sink in the order they were
+// accepted, and go to no other sink.
 type AsyncSink struct {
 	inner  Sink
 	opts   AsyncOptions
-	queue  chan Record
+	rebind func(context.Context) error
+	wake   chan struct{}
 	done   chan struct{}
 	stop   context.Context
 	cancel context.CancelFunc
-	mu     sync.Mutex
-	closed bool
-	counts AsyncCounts
+
+	mu          sync.Mutex
+	ring        []Record
+	head, size  int
+	closed      bool
+	overflowing bool
+	since       time.Time // the current failure began, or the previous gap record's until while draining
+	until       time.Time // the until of the latest gap record built
+	lost        uint64    // dropped records no delivered gap record reported
+	reported    uint64    // the dropped count the latest gap record carries
+	draining    bool      // a recovery happened and the queue has not been empty since
+	counts      AsyncCounts
 }
 
 // NewAsyncSink starts the delivery goroutine. Call Close to stop it.
@@ -88,8 +131,25 @@ func NewAsyncSink(inner Sink, opts AsyncOptions) *AsyncSink {
 	if opts.Capacity <= 0 {
 		opts.Capacity = DefaultAsyncCapacity
 	}
+	if opts.WriteTimeout == 0 {
+		opts.WriteTimeout = DefaultWriteTimeout
+	}
+	if opts.InitialBackoff <= 0 {
+		opts.InitialBackoff = DefaultInitialBackoff
+	}
+	if opts.MaxBackoff <= 0 {
+		opts.MaxBackoff = DefaultMaxBackoff
+	}
+	if opts.OnOverflow == nil && opts.OnFailure == nil && opts.OnRecovery == nil {
+		opts.OnOverflow, opts.OnFailure, opts.OnRecovery = reportOverflow, reportFailure, reportRecovery
+	}
+	rebind := opts.Rebind
+	if rebinder, ok := inner.(Rebinder); ok && rebind == nil {
+		rebind = rebinder.Rebind
+	}
 	stop, cancel := context.WithCancel(context.Background())
-	s := &AsyncSink{inner: inner, opts: opts, queue: make(chan Record, opts.Capacity), done: make(chan struct{}), stop: stop, cancel: cancel}
+	s := &AsyncSink{inner: inner, opts: opts, rebind: rebind, wake: make(chan struct{}, 1), done: make(chan struct{}),
+		stop: stop, cancel: cancel, ring: make([]Record, opts.Capacity)}
 	go s.run()
 	return s
 }
@@ -102,17 +162,18 @@ func (s *AsyncSink) Write(r Record) error {
 		s.mu.Unlock()
 		return ErrSinkClosed
 	}
-	select {
-	case s.queue <- r:
+	if s.size < len(s.ring) {
+		s.ring[(s.head+s.size)%len(s.ring)] = r
+		s.size++
 		s.counts.Accepted++
-		s.counts.Overflowing = false
 		s.mu.Unlock()
+		s.signal()
 		return nil
-	default:
 	}
 	s.counts.Dropped++
-	first := !s.counts.Overflowing
-	s.counts.Overflowing = true
+	s.lost++
+	first := !s.overflowing
+	s.overflowing = true
 	snapshot := s.snapshotLocked()
 	s.mu.Unlock()
 	if first && s.opts.OnOverflow != nil {
@@ -133,83 +194,254 @@ func (s *AsyncSink) Counts() AsyncCounts {
 
 func (s *AsyncSink) snapshotLocked() AsyncCounts {
 	c := s.counts
-	c.Queued = len(s.queue)
+	c.Queued = s.size
 	return c
 }
 
-// Close stops accepting records, waits for the queue to drain until ctx is
+func (s *AsyncSink) signal() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+}
+
+// Close stops accepting records, delivers and retries the queue until ctx is
 // done, and returns the counts at that point. At the deadline it cancels the
-// delivery in flight, abandons the records still queued, and returns
-// ErrCloseDeadline with their number.
+// delivery or wait in progress, counts the record at the head as Failed and the
+// records behind it as Abandoned, and returns ErrCloseDeadline with their number.
 //
-// With a WriteTimeout, Close then waits for the delivery goroutine to account
-// for every record, which never waits on the inner sink, and the counts are
-// final. Without one, a delivery that ignores cancellation may still be in
+// With a bounded WriteTimeout, Close then waits for the delivery goroutine to
+// account for every record, which never waits on the inner sink, and the counts
+// are final. Without one, a delivery that ignores cancellation may still be in
 // flight and in none of Written, Failed or Abandoned. Close is safe to call more
 // than once.
 func (s *AsyncSink) Close(ctx context.Context) (AsyncCounts, error) {
 	s.mu.Lock()
-	if !s.closed {
-		s.closed = true
-		close(s.queue)
-	}
+	s.closed = true
 	s.mu.Unlock()
+	s.signal()
 	select {
 	case <-s.done:
 		return s.Counts(), nil
 	case <-ctx.Done():
 	}
 	s.mu.Lock()
-	remaining := len(s.queue)
+	remaining := s.size
 	s.mu.Unlock()
 	s.cancel()
 	if s.opts.WriteTimeout > 0 {
 		<-s.done
 	}
-	return s.Counts(), fmt.Errorf("%w: %d queued records abandoned: %v", ErrCloseDeadline, remaining, ctx.Err())
+	return s.Counts(), fmt.Errorf("%w: %d queued records undelivered: %v", ErrCloseDeadline, remaining, ctx.Err())
 }
 
 func (s *AsyncSink) run() {
 	defer close(s.done)
-	var bounded *boundedDelivery
+	deliver := func(r Record) error { return s.deliver(s.stop, r) }
 	if s.opts.WriteTimeout > 0 {
-		bounded = &boundedDelivery{sink: s, attempts: make(chan attempt)}
+		bounded := &boundedDelivery{sink: s, attempts: make(chan attempt)}
 		go bounded.loop()
 		defer close(bounded.attempts)
+		deliver = bounded.deliver
 	}
-	for r := range s.queue {
-		if s.stop.Err() != nil {
+	for {
+		if err := s.reportDrained(deliver); err != nil {
+			if s.stop.Err() != nil || !s.retry(deliver, err) {
+				s.giveUp()
+				return
+			}
+			continue
+		}
+		r, ok := s.next()
+		if !ok {
+			return
+		}
+		err := deliver(r)
+		if err == nil {
 			s.mu.Lock()
-			s.counts.Abandoned++
+			s.pop()
+			s.counts.Written++
+			if !s.draining {
+				s.lost = 0
+			}
 			s.mu.Unlock()
 			continue
 		}
-		var err error
-		if bounded != nil {
-			err = bounded.deliver(r)
-		} else {
-			err = s.deliver(s.stop, r)
+		if s.stop.Err() != nil || !s.retry(deliver, err) {
+			s.giveUp()
+			return
+		}
+	}
+}
+
+// reportDrained ends a drain [LOG-S13]. The first time the queue is empty after
+// a recovery, the records dropped after the recovery's gap record was built are
+// reported by a later gap record, delivered here. It returns that delivery's
+// error.
+func (s *AsyncSink) reportDrained(deliver func(Record) error) error {
+	s.mu.Lock()
+	if !s.draining || s.size > 0 {
+		s.mu.Unlock()
+		return nil
+	}
+	if s.lost == 0 {
+		s.draining = false
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+	if err := deliver(s.gapRecord()); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.lost -= s.reported
+	s.since = s.until
+	s.mu.Unlock()
+	return nil
+}
+
+// next waits for a record at the head of the queue. It reports false once the
+// sink is closed and empty, or stopped, abandoning what is still queued.
+func (s *AsyncSink) next() (Record, bool) {
+	for {
+		s.mu.Lock()
+		switch {
+		case s.stop.Err() != nil:
+			s.counts.Abandoned += uint64(s.size)
+			s.clear()
+			s.mu.Unlock()
+			return Record{}, false
+		case s.size > 0:
+			r := s.ring[s.head]
+			s.mu.Unlock()
+			return r, true
+		case s.closed:
+			s.mu.Unlock()
+			return Record{}, false
+		}
+		s.mu.Unlock()
+		select {
+		case <-s.wake:
+		case <-s.stop.Done():
+		}
+	}
+}
+
+// retry runs one failure: it rebinds, reports the failure, and retries with
+// backoff until the gap record is delivered. It reports false when the sink was
+// stopped first.
+func (s *AsyncSink) retry(deliver func(Record) error, cause error) bool {
+	s.mu.Lock()
+	s.counts.Failing = true
+	s.counts.LastError = cause.Error()
+	if !s.draining {
+		s.since = time.Now()
+	}
+	s.mu.Unlock()
+	if err := s.rebindOnce(); err != nil {
+		cause = err
+	}
+	s.mu.Lock()
+	s.counts.LastError = cause.Error()
+	snapshot := s.snapshotLocked()
+	s.mu.Unlock()
+	if s.opts.OnFailure != nil {
+		s.opts.OnFailure(cause, snapshot)
+	}
+	delay := s.opts.InitialBackoff
+	for {
+		timer := time.NewTimer(jittered(delay))
+		select {
+		case <-timer.C:
+		case <-s.stop.Done():
+			timer.Stop()
+			return false
+		}
+		delay = min(2*delay, s.opts.MaxBackoff)
+		err := s.rebindOnce()
+		if err == nil {
+			err = deliver(s.gapRecord())
+		}
+		if s.stop.Err() != nil {
+			return false
+		}
+		if err != nil {
+			s.mu.Lock()
+			s.counts.LastError = err.Error()
+			s.mu.Unlock()
+			continue
 		}
 		s.mu.Lock()
-		var failed, recovered bool
-		if err != nil {
-			s.counts.Failed++
-			failed = !s.counts.Failing
-			s.counts.Failing = true
-			s.counts.LastError = err.Error()
-		} else {
-			s.counts.Written++
-			recovered = s.counts.Failing
-			s.counts.Failing = false
-		}
+		s.counts.Failing = false
+		s.lost -= s.reported
+		s.since = s.until
+		s.draining = true
 		snapshot := s.snapshotLocked()
 		s.mu.Unlock()
-		if failed && s.opts.OnFailure != nil {
-			s.opts.OnFailure(err, snapshot)
-		}
-		if recovered && s.opts.OnRecovery != nil {
+		if s.opts.OnRecovery != nil {
 			s.opts.OnRecovery(snapshot)
 		}
+		return true
+	}
+}
+
+func (s *AsyncSink) rebindOnce() error {
+	if s.rebind == nil {
+		return nil
+	}
+	ctx, cancel := s.stop, context.CancelFunc(func() {})
+	if s.opts.WriteTimeout > 0 {
+		ctx, cancel = context.WithTimeout(s.stop, s.opts.WriteTimeout)
+	}
+	defer cancel()
+	return s.rebind(ctx)
+}
+
+// gapRecord is the WARN record whose delivery is the recovery, or that reports
+// the records dropped while the queue drained after one [LOG-S13].
+func (s *AsyncSink) gapRecord() Record {
+	s.mu.Lock()
+	since, lost := s.since, s.lost
+	until := time.Now()
+	s.reported, s.until = lost, until
+	s.mu.Unlock()
+	return Record{
+		Schema: SchemaVersion, Time: At(until), Level: LevelWarn, Msg: GapMessage,
+		Identity: Identity{Claim(s.opts.Program)},
+		Attrs: map[string]string{
+			"dropped": strconv.FormatUint(lost, 10),
+			"since":   since.UTC().Format(instantLayout),
+			"until":   until.UTC().Format(instantLayout),
+		},
+	}
+}
+
+const instantLayout = "2006-01-02T15:04:05.000000Z"
+
+// giveUp counts the head record Failed and the records behind it Abandoned.
+func (s *AsyncSink) giveUp() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.size > 0 {
+		s.pop()
+		s.counts.Failed++
+	}
+	s.counts.Abandoned += uint64(s.size)
+	s.clear()
+}
+
+func (s *AsyncSink) pop() {
+	s.ring[s.head] = Record{}
+	s.head = (s.head + 1) % len(s.ring)
+	s.size--
+	if s.size == 0 {
+		s.overflowing = false
+	}
+}
+
+func (s *AsyncSink) clear() {
+	for s.size > 0 {
+		s.pop()
 	}
 }
 
@@ -220,6 +452,40 @@ func (s *AsyncSink) deliver(ctx context.Context, r Record) error {
 		return sink.WriteContext(ctx, r)
 	}
 	return s.inner.Write(r)
+}
+
+// jittered varies d by up to BackoffJitter either way.
+func jittered(d time.Duration) time.Duration {
+	return time.Duration(float64(d) * (1 - BackoffJitter + 2*BackoffJitter*rand.Float64()))
+}
+
+// failureClass names a failure on the default reporter's line: the resolution
+// status, timeout, or write_failed.
+func failureClass(err error) string {
+	var refused *ResolutionError
+	switch {
+	case errors.As(err, &refused):
+		return string(refused.Status)
+	case errors.Is(err, ErrWriteTimeout), errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	default:
+		return "write_failed"
+	}
+}
+
+// reportTo is the default reporter's stream, read at each report.
+var reportTo = func() io.Writer { return os.Stderr }
+
+func reportFailure(err error, c AsyncCounts) {
+	fmt.Fprintf(reportTo(), "abstraction.logging: service unreachable (%s); %d queued, %d dropped\n", failureClass(err), c.Queued, c.Dropped)
+}
+
+func reportOverflow(c AsyncCounts) {
+	fmt.Fprintf(reportTo(), "abstraction.logging: queue full, dropping newest records; %d queued, %d dropped\n", c.Queued, c.Dropped)
+}
+
+func reportRecovery(c AsyncCounts) {
+	fmt.Fprintf(reportTo(), "abstraction.logging: delivering again; %d dropped\n", c.Dropped)
 }
 
 type attempt struct {
@@ -248,8 +514,8 @@ func (b *boundedDelivery) deliver(r Record) error {
 	ctx, cancel := context.WithTimeout(b.sink.stop, timeout)
 	defer cancel()
 	// A cancelled delivery returns a moment after its timeout, and the next
-	// record's turn can come first. The record waits for it within its own
-	// timeout, so a sink that honours cancellation loses nothing to that race.
+	// delivery's turn can come first. It waits for the earlier one within its
+	// own timeout, so a sink that honours cancellation loses nothing to that race.
 	if b.pending != nil {
 		select {
 		case <-b.pending:

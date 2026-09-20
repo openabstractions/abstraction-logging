@@ -35,16 +35,16 @@ public:
     Logger(std::string endpoint, ipc::Deadline deadline)
         : endpoint_(std::move(endpoint)), deadline_(deadline) {}
 
-    void Write(const Record& record) const {
+    void write(const Record& record) const {
         auto transport = deadline_ ? ipc::FrameTransport(endpoint_, *deadline_, 1 << 20)
                                    : ipc::FrameTransport(endpoint_, 2000, 1 << 20);
-        transport = transport.WithCancellation(cancellation_).WithServerExpectation(server_);
+        transport = transport.with_cancellation(cancellation_).with_server_expectation(server_);
         SinkClient<ipc::FrameTransport> client(transport);
-        client.Write(record);
+        client.write(record);
     }
 
     // Applications supply the event; schema and timestamp are protocol details.
-    void Log(std::int64_t level, std::string message,
+    void log(std::int64_t level, std::string message,
              std::map<std::string, std::string> attributes = {}) const {
         const auto micros = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
@@ -70,10 +70,10 @@ public:
         self.by = "self";
         self.uid = self.gid = self.pid = -1;
         record.identity.push_back(std::move(self));
-        Write(record);
+        write(record);
     }
-    Logger WithServerExpectation(std::optional<ipc::ServerExpectation> server) const {auto copy=*this;copy.server_=std::move(server);return copy;}
- Logger WithCancellation(ipc::CancellationToken token) const {
+    Logger with_server_expectation(std::optional<ipc::ServerExpectation> server) const {auto copy=*this;copy.server_=std::move(server);return copy;}
+ Logger with_cancellation(ipc::CancellationToken token) const {
         auto scoped = *this;
         scoped.cancellation_ = std::move(token);
         return scoped;
@@ -101,16 +101,16 @@ class History {
 public:
  explicit History(std::string endpoint):endpoint_(std::move(endpoint)) {}
  History(std::string endpoint,ipc::Deadline deadline):endpoint_(std::move(endpoint)),deadline_(deadline) {}
- Page Read(const std::string& cursor, std::int64_t max_records=64, std::int64_t max_bytes=65536) const {
+ Page read(const std::string& cursor, std::int64_t max_records=64, std::int64_t max_bytes=65536) const {
   auto transport=deadline_ ? ipc::FrameTransport(endpoint_,*deadline_,1<<20) : ipc::FrameTransport(endpoint_,2000,1<<20);
-  transport=transport.WithCancellation(cancellation_).WithServerExpectation(server_);
+  transport=transport.with_cancellation(cancellation_).with_server_expectation(server_);
   HistoryReaderClient<ipc::FrameTransport> client(transport);
-  auto page=client.Read(cursor,max_records,max_bytes);
+  auto page=client.read(cursor,max_records,max_bytes);
   history_detail::validate(page,cursor,max_records,max_bytes);
   return page;
  }
- History WithServerExpectation(std::optional<ipc::ServerExpectation> server) const {auto copy=*this;copy.server_=std::move(server);return copy;}
- History WithCancellation(ipc::CancellationToken token) const {
+ History with_server_expectation(std::optional<ipc::ServerExpectation> server) const {auto copy=*this;copy.server_=std::move(server);return copy;}
+ History with_cancellation(ipc::CancellationToken token) const {
   auto scoped=*this;scoped.cancellation_=std::move(token);return scoped;
  }
 private:
@@ -125,16 +125,16 @@ class Observer {
 public:
  explicit Observer(std::string endpoint):endpoint_(std::move(endpoint)) {}
  Observer(std::string endpoint,ipc::Deadline deadline):endpoint_(std::move(endpoint)),deadline_(deadline) {}
- Page Observe(const std::string& cursor,std::int64_t max_records=64,std::int64_t max_bytes=65536,std::int64_t wait_ms=0)const {
+ Page observe(const std::string& cursor,std::int64_t max_records=64,std::int64_t max_bytes=65536,std::int64_t wait_ms=0)const {
   if(wait_ms<0||wait_ms>30000)throw std::invalid_argument("logging: wait_ms must be 0..30000");
   auto transport=deadline_ ? ipc::FrameTransport(endpoint_,*deadline_,1<<20) : ipc::FrameTransport(endpoint_,2000,1<<20);
-  transport=transport.WithCancellation(cancellation_).WithServerExpectation(server_);
+  transport=transport.with_cancellation(cancellation_).with_server_expectation(server_);
   HistoryObserverClient<ipc::FrameTransport> client(transport);
-  auto page=client.Observe(cursor,max_records,max_bytes,wait_ms);
+  auto page=client.observe(cursor,max_records,max_bytes,wait_ms);
   history_detail::validate(page,cursor,max_records,max_bytes);return page;
  }
- Observer WithServerExpectation(std::optional<ipc::ServerExpectation> server) const {auto copy=*this;copy.server_=std::move(server);return copy;}
- Observer WithCancellation(ipc::CancellationToken token)const {auto copy=*this;copy.cancellation_=std::move(token);return copy;}
+ Observer with_server_expectation(std::optional<ipc::ServerExpectation> server) const {auto copy=*this;copy.server_=std::move(server);return copy;}
+ Observer with_cancellation(ipc::CancellationToken token)const {auto copy=*this;copy.cancellation_=std::move(token);return copy;}
 private:
  std::string endpoint_;
  std::optional<ipc::Deadline> deadline_;

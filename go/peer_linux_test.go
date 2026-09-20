@@ -36,10 +36,6 @@ func serving(t *testing.T, srv *Server) (string, arrivals) {
 	return addr, got
 }
 
-type sinkFunc func(Record) error
-
-func (f sinkFunc) Write(r Record) error { return f(r) }
-
 func next(t *testing.T, a arrivals) arrival {
 	t.Helper()
 	select {
@@ -134,7 +130,7 @@ func TestServiceRoutesByKernelIdentity(t *testing.T) {
 // two different answers.
 func TestTwoHopPathKeepsAuthorAndRelayDistinct(t *testing.T) {
 	receiverAddr, got := serving(t, &Server{})
-	forward := NewServiceSink(receiverAddr, DiscardSink{})
+	forward := NewServiceSink(receiverAddr)
 	defer forward.Close()
 	relay := &Server{Out: func(Attestation) Sink { return forward }}
 	relayAddr := filepath.Join(t.TempDir(), "r.sock")
@@ -170,19 +166,5 @@ func TestTwoHopPathKeepsAuthorAndRelayDistinct(t *testing.T) {
 	}
 	if authorised.Disputed() {
 		t.Fatal("a relay with its own pid was reported as a dispute")
-	}
-}
-
-// An unreachable service must fall through to the next tier rather than losing
-// the line or failing the caller.
-func TestServiceSinkFallsBackWhenNobodyIsListening(t *testing.T) {
-	fallback := make(chan Record, 1)
-	sink := NewServiceSink(filepath.Join(t.TempDir(), "nothing.sock"),
-		sinkFunc(func(r Record) error { fallback <- r; return nil }))
-	if err := sink.Write(Record{Schema: SchemaVersion, Msg: "x"}); err != nil {
-		t.Fatalf("logging must not fail the caller: %v", err)
-	}
-	if len(fallback) != 1 {
-		t.Fatal("the record was lost instead of falling back")
 	}
 }

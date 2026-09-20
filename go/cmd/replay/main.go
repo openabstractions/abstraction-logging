@@ -228,8 +228,10 @@ func (p *replay) apply(f []string) string {
 		s := logging.LegacyAuto("replay")
 		st := &sinkState{sink: s}
 		switch v := s.(type) {
-		case *logging.ServiceSink:
-			v.Fallback = &counting{inner: v.Fallback}
+		case *logging.LocalFallbackSink:
+			// The environment chain's service rung is the explicitly selected
+			// local fallback provider [LOG-S5]; count what reaches its lower rung.
+			v.Local = &counting{inner: v.Local}
 			st.served = p.current
 		case *logging.FileSink:
 			st.path = v.Path()
@@ -356,19 +358,11 @@ func (p *replay) apply(f []string) string {
 	return "unknown-op"
 }
 
-// send renders the record as it leaves the process: through the service sink,
-// which hands its fallback the record exactly as it would have sent it, and
-// then through the encoder and the decoder, which is the wire. The anchor was
-// the previous party's and goes.
+// send renders the record as it leaves the process: through the encoder a
+// service sink puts on the socket, unchanged, and then through the decoder,
+// which is the wire. The anchor was the previous party's and goes.
 func (p *replay) send(alias string, r *logging.Record) string {
-	var handed logging.Record
-	sink := logging.NewServiceSink(filepath.Join(p.work, "nobody-listens.sock"),
-		sinkFunc(func(x logging.Record) error { handed = x; return nil }))
-	defer sink.Close()
-	if err := sink.Write(*r); err != nil {
-		return "refused"
-	}
-	b, err := handed.Encode()
+	b, err := r.Encode()
 	if err != nil {
 		return "invalid"
 	}
@@ -439,7 +433,7 @@ func shape(r logging.Record) string {
 
 func tier(s logging.Sink) string {
 	switch s.(type) {
-	case *logging.ServiceSink:
+	case *logging.LocalFallbackSink, *logging.ServiceSink:
 		return "service"
 	case *logging.FileSink:
 		return "file"
@@ -490,8 +484,8 @@ func (p *replay) stopServer() {
 
 func (p *replay) write(st *sinkState, r logging.Record) string {
 	switch s := st.sink.(type) {
-	case *logging.ServiceSink:
-		fb := s.Fallback.(*counting)
+	case *logging.LocalFallbackSink:
+		fb := s.Local.(*counting)
 		before := fb.n
 		if err := s.Write(r); err != nil {
 			return "refused"

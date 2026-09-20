@@ -8,11 +8,21 @@ import (
 )
 
 // Default returns a handler bound lazily to the resolved logging service.
-// The first successful resolution is retained. Handle reports failures and never
-// falls back to a file or stderr. Standard slog.Logger discards Handler errors;
-// callers requiring a delivery error must invoke Handle or the typed client.
+// Until the first successful resolution, Handle resolves and reports an absent
+// service as the resolution error [LOG-S11]. Once bound, records are queued and
+// delivered by an AsyncSink that retries and rebinds when the service
+// disappears, and reports each transition on standard error [LOG-S12, LOG-S13].
+// Nothing falls back to a file or stderr. Standard slog.Logger discards Handler
+// errors; callers requiring a resolution error must invoke Check, Handle or the
+// typed client.
 func Default(program string) slog.Handler {
-	return NewHandler(newResolvedSink(), &Options{Program: program})
+	return NewDefaultHandler(&Options{Program: program})
+}
+
+// NewDefaultHandler is Default with Options, whose OnFailure, OnRecovery and
+// OnOverflow replace the standard-error reporter.
+func NewDefaultHandler(opts *Options) *Handler {
+	return newAdoptedHandler(newResolvedSink(), opts)
 }
 
 // LegacyDefault explicitly selects environment/file discovery and stderr when
@@ -55,6 +65,13 @@ type Options struct {
 	Job string
 	// Claim overrides the computed hop-0 attestation, for tests.
 	Claim *Attestation
+	// OnFailure, OnRecovery and OnOverflow receive the transitions of a handler
+	// bound through the facade (Default, NewDefaultHandler, Resolve,
+	// NewResolvedHandler); see AsyncOptions. With none set, each transition is
+	// one line on standard error. Other handlers ignore them.
+	OnFailure  func(error, AsyncCounts)
+	OnRecovery func(AsyncCounts)
+	OnOverflow func(AsyncCounts)
 }
 
 func NewHandler(sink Sink, opts *Options) *Handler {
@@ -63,6 +80,36 @@ func NewHandler(sink Sink, opts *Options) *Handler {
 		h.opts = *opts
 	}
 	return h
+}
+
+// Counts returns the delivery counts of a handler bound through the facade, or
+// of a handler over an AsyncSink. Other handlers, and one not yet bound, report
+// zero counts.
+func (h *Handler) Counts() AsyncCounts {
+	if queue := h.queue(); queue != nil {
+		return queue.Counts()
+	}
+	return AsyncCounts{}
+}
+
+// Close drains the queue of a handler bound through the facade, or of a handler
+// over an AsyncSink, until ctx is done; see AsyncSink.Close. Other handlers
+// have nothing to drain.
+func (h *Handler) Close(ctx context.Context) (AsyncCounts, error) {
+	if queue := h.queue(); queue != nil {
+		return queue.Close(ctx)
+	}
+	return AsyncCounts{}, nil
+}
+
+func (h *Handler) queue() *AsyncSink {
+	switch sink := h.sink.(type) {
+	case *adoptedSink:
+		return sink.async()
+	case *AsyncSink:
+		return sink
+	}
+	return nil
 }
 
 func (h *Handler) Enabled(_ context.Context, l slog.Level) bool {

@@ -12,7 +12,7 @@ import (
 func TestDefaultHandlerRefusesUnselectedInstallation(t *testing.T) {
 	for _, want := range []error{bootstrap.ErrNoTrustedInstallation, bootstrap.ErrAmbiguousInstallation, bootstrap.ErrUnsupportedSelection} {
 		handler := Default("trust-test").(*Handler)
-		sink := handler.sink.(*resolvedSink)
+		sink := handler.sink.(*adoptedSink).resolved
 		called := 0
 		sink.selectInstalled = func(ctx context.Context) (bootstrap.Selection, error) {
 			called++
@@ -31,7 +31,7 @@ func TestDefaultHandlerRefusesUnselectedInstallation(t *testing.T) {
 
 func TestDefaultHandlerCanceledBeforeSelection(t *testing.T) {
 	handler := Default("trust-test").(*Handler)
-	handler.sink.(*resolvedSink).selectInstalled = func(context.Context) (bootstrap.Selection, error) {
+	handler.sink.(*adoptedSink).resolved.selectInstalled = func(context.Context) (bootstrap.Selection, error) {
 		t.Fatal("selection after cancellation")
 		return bootstrap.Selection{}, nil
 	}

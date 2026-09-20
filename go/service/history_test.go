@@ -6,6 +6,7 @@ import (
 	"github.com/openabstractions/abstraction-identity/listen"
 	logging "github.com/openabstractions/abstraction-logging/go"
 	wire "github.com/openabstractions/abstraction-logging/go/abstraction/logging"
+	loggingclient "github.com/openabstractions/abstraction-logging/go/client"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -71,6 +72,12 @@ func TestHistoryThroughGeneratedService(t *testing.T) {
 			gap, err := client.Read("foreign:0", 1, 65536)
 			if err != nil || gap.Outcome != wire.PageOutcomeGap {
 				t.Fatalf("gap: %+v %v", gap, err)
+			}
+			// The end word through the service and the validating reader client.
+			reader := loggingclient.NewReaderWithTransport(listen.FrameClient{Endpoint: endpoint, Timeout: time.Second, MaxFrame: 1 << 20})
+			end, err := reader.ReadContext(context.Background(), logging.EndCursor, 256, 65536)
+			if err != nil || end.Outcome != wire.PageOutcomePage || len(end.Records) != 0 || !end.AtEnd || end.Next != page.Next {
+				t.Fatalf("end: %+v %v, want the continuation %q", end, err, page.Next)
 			}
 		})
 	}

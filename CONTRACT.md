@@ -99,6 +99,14 @@ something new without every other binding changing shape.
 
 ## Where a record goes
 
+Two kinds of sink answer this question. A sink resolved through the facade is
+the logging capability an application adopts: Go `Default`, `Resolve` and
+`NewResolvedHandler`, and each language's `resolve_log`. `LOG-S11` governs its
+absent service, and `LOG-S12` and `LOG-S13` a service that disappears after
+binding. The environment chain is a local provider an application
+selects by name, Go `LegacyAuto` and `LegacyDefault`, and `LOG-S1` to `LOG-S5`
+and `LOG-S8` describe it. The remaining rules on this page apply to any sink.
+
 **Where a record goes is a property of the machine, not a choice of the code
 that logs** [LOG-S1]. An application says "log". It names no path, no host and
 no service, and the same call answers differently on two machines because the
@@ -119,12 +127,17 @@ says so once**, on the standard error stream, and the program starts [LOG-S4].
 Refusing to run because a log file could not be opened would make logging the
 most dangerous component in the system.
 
-**A service that cannot be reached degrades per record, not per process**
-[LOG-S5]. The record goes to the rung below; the caller is not blocked and
+**A service socket on the environment chain that cannot be reached degrades per
+record, not per process** [LOG-S5]. The record goes to the rung below; the caller is not blocked and
 nothing retries inside its log statement, because the moment a program is
 logging heavily is the moment something is already going wrong. A service
 configured with nothing beneath it discards while it is unreachable, which is
-the honest reading of a chain whose last rung is nothing.
+the honest reading of a chain whose last rung is nothing. The degradation
+belongs to the chain, a provider the application selected, and in Go it is the
+named `LocalFallbackSink`. The socket sink alone, Go `ServiceSink`, returns the
+failure to reach its service as the write's error. A retry lives in an
+asynchronous sink's delivery loop (`LOG-S12`), which runs after the log statement
+that queued the record has returned.
 
 **A record over a sink's line cap is shrunk until it fits and marked as shrunk**
 [LOG-S6]. It is never dropped and never split across two writes: dropping loses
@@ -161,8 +174,98 @@ Where that chain lands on nothing, the default handler is the language's own
 text output on the standard error stream. A daemon nobody configured that says
 nothing at all is a defect in this layer, and two daemons carried that fallback
 themselves before it lived here. The service-resolved default, Go `Default`,
-reports an absent runtime as a write error. Its planned fallback is a native
-logger that the adopter installs explicitly beside the facade.
+reports an absent runtime as the resolution error of `LOG-S11`. Its planned
+fallback is a native logger that the adopter installs explicitly beside the
+facade.
+
+**A sink resolved through the facade reports an absent service as the facade's
+resolution error, and the record goes to no other sink** [LOG-S11]. An
+application that adopted logging requires the service, as a program using a
+graphics API requires its driver (owner ruling, 2026-09-16). When no runtime is
+installed or reachable, or the runtime offers no logging sink, the eager
+resolution and every write fail with the resolution error: `runtime_unavailable`
+or the resolver's refusal, with the capability, the contract and what was looked
+for. Writing the record to the standard error stream, a file or a discarding
+sink in its place would hide the missing runtime from the operator who enabled
+logging, and the ruling names that substitution a defect. A fallback is a local
+provider the application selects by name: the environment chain above, or the
+native logger an adopter installs beside the facade, which is designed and not
+built.
+
+**A bound sink whose service disappears keeps its records in a bounded queue,
+retries them with backoff, and rebinds through the facade; the application keeps
+running and the records go to no other sink** [LOG-S12]. The runtime is a
+supervised process, and a service that disappears after binding is that process
+restarting at the same endpoint within seconds (decision 2026-09-16,
+`research/logging-sink-loss/DECISION.md`). Each language's asynchronous handler
+holds the policy:
+
+- The queue holds 1024 records by default, counting the record being delivered.
+  A record leaves the queue when it is delivered.
+- When the queue is full, the newest record is dropped and counted, and the log
+  statement returns at once. No log statement waits on the service.
+- A failed delivery keeps its record at the head of the queue. The handler
+  rebinds at once: it selects the installed runtime again, checks its trust
+  again and resolves `abstraction.logging/sink@1` again. It then retries after
+  waiting 100 ms, doubling after each failed retry up to 5 s, each wait varied by
+  up to 20 % either way, and rebinds again before each retry. A handler over a
+  client its application resolved rebinds through the resolve function the
+  application supplied, and one given none retries the same client.
+- Each delivery is bounded by a write timeout, 5 s by default. A delivery that
+  times out is a failed delivery.
+- Closing drains the queue until the caller's deadline. The record being
+  delivered at the deadline is counted failed, and the records behind it are
+  counted abandoned.
+- Records go to no disk spool and no other sink. Durability belongs to the
+  service's history, and a local runtime that relays to a remote service buffers
+  in that history.
+
+An application that must not run without its audit trail reads the handler's
+`failing` state and stops itself.
+
+**A handler that loses its service makes the loss visible in four typed ways**
+[LOG-S13].
+
+- **Counts.** Every handler exposes `accepted`, `dropped`, `written`, `failed`,
+  `abandoned`, `queued`, `failing` and `last_error` in its language's idiom.
+  Every record handed to the handler is exactly one of accepted or dropped.
+  Every accepted record ends as exactly one of written, failed or abandoned, or
+  is still queued.
+- **Transitions.** `on_failure(error, counts)` runs when a delivery fails after
+  the previous one succeeded, once the first rebind attempt has returned.
+  `on_recovery(counts)` runs when a retry reaches the service again, and
+  `on_overflow(counts)` on the first dropped record since the queue was last
+  empty. Each runs once per run of its condition, on the thread that observed
+  it, before the handler continues. The error is the typed resolution error when
+  that rebinding failed, and the delivery's error otherwise.
+- **Default reporter.** A handler given none of the three callbacks writes one
+  line per transition on its language's error stream:
+  `abstraction.logging: service unreachable (<class>); <queued> queued, <dropped> dropped`,
+  `abstraction.logging: queue full, dropping newest records; <queued> queued, <dropped> dropped`
+  and `abstraction.logging: delivering again; <dropped> dropped`. The class is
+  the resolution status when rebinding failed, `timeout` when the delivery timed
+  out, and `write_failed` otherwise. The line reports the sink's state and never
+  carries a record.
+- **Gap record.** A retry after a failure first delivers one record at level
+  WARN, message `records dropped while the sink was unreachable`, with the
+  attributes `dropped`, `since` and `until` (fixed-width instants, `LOG-R7`)
+  and the handler's hop 0 claim. Its delivery is the recovery. It is not
+  counted as accepted or written, and the queued records follow it in order.
+
+  Every drop of an outage is reported by one gap record. An outage's drops are
+  the records dropped from the last delivery before its failure until the queue
+  is first empty after its recovery. `dropped` counts the outage's drops that no
+  delivered gap record reported, up to the moment the gap record is built.
+  Records dropped later, while that record is delivered or while the queue
+  drains, go to a later gap record. The first time the queue is empty after the
+  recovery, a handler holding unreported drops delivers another gap record with
+  their count before it takes the next record. A failure before then carries
+  them into that failure's gap record. `since` is when the failure began for
+  an outage's first gap record, and the previous gap record's `until` for a
+  later one; `until` is when the record was built. Once the queue has drained,
+  the `dropped` attributes of an outage's delivered gap records sum to its
+  drops. A close that reaches its deadline first leaves the rest unreported,
+  as it leaves records abandoned.
 
 ---
 
@@ -370,7 +473,7 @@ deciding a permission model on this answer would be wrong today.
 
 ## What a conformance run can reach
 
-One driver exists, in Go, at `go/cmd/replay`, and the seven scenarios in
+One driver exists, in Go, at `go/cmd/replay`, and the eight scenarios in
 `testdata/scenarios/` are green against it on Windows and on Linux. Every rule
 below is therefore **proven against one implementation and UNPROVEN against any
 second**, which for a layer whose claim is that several languages agree on one
@@ -378,16 +481,16 @@ record format is the gap that matters: a green against one binding proves that
 it agrees with itself.
 
 **Reachable by a driver alone**, needing nothing but the machine it runs on.
-Thirty-two rules, seven scenarios: the shape of one encoded record, a reader
+Thirty-three rules, eight scenarios: the shape of one encoded record, a reader
 refusing a schema, the delegation chain and each way it degrades, an oversized
 record shrinking, a record whose retained metadata alone will not fit, a cap too
 small for any record at all, a message of three-byte characters cut to fit
 without splitting one, the identity chain along a real two-hop path, a
 contradiction that must survive, and three attacks on the chain — a forged earlier hop, an
 unauthorised relay, evidence altered after it was bound — plus a forged
-binding, none of which is promoted.
+binding, none of which is promoted, and a record that arrives with no chain.
 
-**Declared and reached by no scenario**, five rules, each for a stated reason:
+**Declared and reached by no scenario**, eight rules, each for a stated reason:
 
 | rule | why no scenario reaches it |
 | --- | --- |
@@ -396,6 +499,8 @@ binding, none of which is promoted.
 | `LOG-P2` | the mode is enforced on some platforms and not on others, so the same scenario would demand two different answers |
 | `LOG-P3` | reachable only on a platform whose access control this interface cannot read, which is exactly the platform where the answer is a constant |
 | `LOG-P4` | as above, and it is the rule this layer does not keep |
+| `LOG-S11` | the scenario vocabulary scripts the environment chain and has no facade resolver to leave absent. Each language's facade tests reach it instead: Go `TestAdoptedSinkWithNoRuntimeFailsWithTheResolutionError`, `TestResolveVerifiedWithNoRuntimeIsTheResolutionError` and the facade client's `TestNoRuntimeInstalledIsAResolutionError`; Python `test_adopted_logging_with_no_runtime_fails_and_substitutes_nothing`; C++ `facade_resolution_error`; Rust `adopted_sink_with_no_runtime_is_the_resolution_error`; JavaScript `absence.mjs` |
+| `LOG-S12`, `LOG-S13` | the scenario vocabulary scripts one write at a time and has no clock, outage or queue. The shared fault `conformance/faults/sink-outage` reaches both in every language's tests instead: Go `TestSinkOutageFixture` and `TestBoundHandlerDeliversRecordsLoggedWhileTheRuntimeRestarts`; Python `test_sink_outage.py` and `test_handler.py`; C++ ctest `logging_sink_outage`; Rust `sink_outage_fixture`; JavaScript `test/logging.test.mjs` |
 
 **Reached against a benched chain, and separately against a kernel.** The
 scenarios hand the driver what a platform's attester answered, so the
@@ -406,16 +511,15 @@ lookup answers on one platform of three, and on the other two the service
 records that it could not attest and every record it accepts is unattributed
 with that reason.
 
-**Not reachable by any run, in any language but one.** One binding exists.
-Until a second one runs these scenarios, a green proves that an implementation
-agrees with itself.
+**Not reachable by any run, in any language but one.** Python, C++, Rust and
+JavaScript have generated record codecs and logging clients, and Python and C++
+read the shared record fixtures in `testdata/records/`. No second driver runs
+these scenarios. Until one does, a green proves that an implementation agrees
+with itself.
 
-**What the shared runner still needs.** The scenarios name a capability and its
-operations, and the driver contract page does not yet carry this layer's
-section: its verdicts, the shape of its answers, and the operations the scenario
-files use. Until it does, a stranger cannot write a conforming driver from the
-published pages alone, and that is a defect in the pages rather than in the
-scenarios.
+**The shared runner's page.** The driver contract page carries this layer's
+section: its verdicts, the shape of its answers and the operations the scenario
+files use.
 
 ---
 
@@ -424,10 +528,12 @@ scenarios.
 | | ran | did not run |
 | --- | --- | --- |
 | the scenarios | against this binding's driver on a Windows workstation and on Linux under WSL2, every cited rule shown to fail when broken in the implementation | against any second language, on any platform |
-| the record format | one language's own unit tests | any second language — the second binding is an empty directory |
-| the identity chain | the walk, the binding and each attack in unit tests on both platforms; the real two-hop socket path on Linux | the two-hop path on Windows or macOS, where the kernel lookup is not written |
-| peer credentials | one kernel's own unit tests, in one language | every other platform; the lookup returns an error there |
-| the service | its unit tests, and as a real listener under the driver for the tier scenario | as a shipped daemon. Nothing ships one, and nothing this project runs writes where a reader could see |
+| the record format | Go's unit tests; Go, Python and C++ reading the shared fixtures `attestation-fields.jsonl` and `unclaimed-hop0.jsonl` | Rust and JavaScript on the fixtures; any second language under the scenarios |
+| the identity chain | the walk, the binding and each attack in unit tests on both platforms; the real two-hop socket path on Linux | the two-hop path on Windows or macOS, where the socket sink's kernel lookup is not written |
+| peer credentials | the socket `Server`: one kernel's own unit tests, in one language. The runtime logging service (`go/service`): its `identity/<os>` stamp from the receiving boundary's evidence, in unit tests on Windows, and in real ComfyUI runs on Windows and a real Ollama run on Linux | the socket `Server` on every other platform, where the lookup returns an error; the runtime service's stamp on macOS |
+| the service | the socket `Server` as a real listener under the driver for the tier scenario; the runtime logging service in its unit tests and hosted by the installed runtime (`openabstractions`) with a file history provider | the socket `Server` as a daemon. Nothing ships one |
+| absence (`LOG-S11`) | a resolved sink with no runtime in Go, Python, C++, Rust and JavaScript tests, each failing with the resolution error | an adopter's end-to-end run with no runtime installed |
+| a lost binding (`LOG-S12`, `LOG-S13`) | the sink-outage fixture against a fake sink in Go, Python, C++ (MSVC), Rust and JavaScript on Windows, with equal counts and gap records that sum to the dropped count, including a drop while the gap record is delivered; in Go, a drop during the drain carried into a second failure's gap record; in Go, a real resolver and logging service stopped and restarted under a bound handler | a supervised runtime killed under an installed adopter; Linux and macOS |
 
 
 ## Retained history service — abstraction.logging/reader@1
@@ -438,7 +544,13 @@ and limits; the provider selects history storage and retention. Reading requires
 receiving-side Program evidence and the service account. Caller-supplied record
 attestations remain claims. Authorization precedes provider access.
 
-An empty cursor begins at the earliest retained record. A successful page preserves
+An empty cursor begins at the earliest retained record. The cursor word `end`
+(`history_cursor_words`) begins at the current end of retained history: a read
+returns a page with no records, `at_end` true and the continuation at that end,
+and an observation fixes that end when the call begins and returns only the
+records appended after it. A follower starts there without paging through
+retained history. A provider never issues a cursor word as a continuation, and
+a refusal returns the word unchanged. A successful page preserves
 append order, returns at most 256 records and at most 65,536 generated record bytes,
 and supplies its continuation. Requested limits must be positive and within those
 caps. The encoded RPC envelope may add framing/indentation overhead; the shared
@@ -463,6 +575,11 @@ The read response confirms retrieved history. Sink.Write remains one-way and
 confirms transport submission only. A stopped or write-only provider cannot
 establish history availability. Runtime registration advertises the reader only
 for a provider implementing it; a logging host stopping withdraws both contracts.
+The Go sink, reader and observer wait `client.DefaultTimeout`, two seconds, per
+call unless the transport, `Observer.WithTimeout` or the call's context sets
+another limit. A history policy answers within that wait: the installed
+runtime bounds its rights decision to 500 ms and answers `policy_unavailable`
+past it.
 Caller waiting cancellation uses shared IPC and does not cancel accepted writes.
 Filesystem operations remain subject to OS completion; the client waiting budget
 does not promise an interruptible filesystem call inside the provider.

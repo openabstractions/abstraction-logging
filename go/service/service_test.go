@@ -51,8 +51,8 @@ func TestGeneratedDispatchRejectsBeforeProvider(t *testing.T) {
 	transport := listen.FrameClient{Endpoint: endpoint, Timeout: 2 * time.Second}
 	captured := &capture{}
 	record := wire.Record{Schema: 1, Time: "2026-09-11T12:00:00.000000Z", Msg: "test", Identity: []wire.Attestation{
-		{By: "self", Uid: -1, Gid: -1, Pid: -1},
-		{By: "forged", Verified: true, Hop: 1, Exe: "invented.exe", Uid: -1, Gid: -1, Pid: -1},
+		{By: "self", UID: -1, GID: -1, PID: -1},
+		{By: "forged", Verified: true, Hop: 1, Exe: "invented.exe", UID: -1, GID: -1, PID: -1},
 	}}
 	if err := wire.NewSinkClient(captured).Write(record); err != nil {
 		t.Fatal(err)

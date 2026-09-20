@@ -4,7 +4,7 @@ const HEX = "0123456789abcdef";
 const ENC = new TextEncoder();
 const SHORT = { 0x22: '\\"', 0x5c: "\\\\", 0x08: "\\b", 0x0c: "\\f", 0x0a: "\\n", 0x0d: "\\r", 0x09: "\\t" };
 
-export class Out {
+class Out {
   constructor() { this.b = []; }
   byte(c) { this.b.push(c); }
   ascii(s) { for (let i = 0; i < s.length; i++) this.b.push(s.charCodeAt(i)); }
@@ -20,11 +20,11 @@ function escByte(out, c) {
 
 // Every integer the definition calls i64 is a BigInt here, because Number
 // rounds above 2^53 and two values in the conformance record are i64 extremes.
-export function num(out, n) { out.ascii(BigInt(n).toString()); }
+function num(out, n) { out.ascii(BigInt(n).toString()); }
 
-export function pad(out, depth) { for (let i = 0; i < depth * 2; i++) out.byte(0x20); }
+function pad(out, depth) { for (let i = 0; i < depth * 2; i++) out.byte(0x20); }
 
-export function strs(out, v, depth) {
+function strs(out, v, depth) {
   if (v.length === 0) { out.ascii("[]"); return; }
   out.ascii("[\n");
   for (let i = 0; i < v.length; i++) {
@@ -39,7 +39,7 @@ export function strs(out, v, depth) {
 
 const isWs = (c) => c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d;
 
-export function raw(out, s, depth) {
+function raw(out, s, depth) {
   const b = typeof s === "string" ? ENC.encode(s) : s;
   let i = 0;
   while (i < b.length) {
@@ -91,7 +91,7 @@ function byteLess(a, b) {
   return x.length - y.length;
 }
 
-export function rawmap(out, m, depth) {
+function rawmap(out, m, depth) {
   const keys = Object.keys(m).sort(byteLess);
   if (keys.length === 0) { out.ascii("{}"); return; }
   out.ascii("{\n");
@@ -107,13 +107,13 @@ export function rawmap(out, m, depth) {
   out.byte(0x7d);
 }
 
-export function esc(out, s) {
+function esc(out, s) {
   out.byte(0x22);
   for (const c of ENC.encode(s)) escByte(out, c);
   out.byte(0x22);
 }
 
-export function strmap(out, m, depth) {
+function strmap(out, m, depth) {
   const keys = Object.keys(m).sort(byteLess);
   if (keys.length === 0) { out.ascii("{}"); return; }
   out.ascii("{\n");
@@ -129,7 +129,7 @@ export function strmap(out, m, depth) {
   out.byte(0x7d);
 }
 
-export function encList(out, v, depth, enc) {
+function writeList(out, v, depth, enc) {
   if (v.length === 0) { out.ascii("[]"); return; }
   out.ascii("[\n");
   for (let i = 0; i < v.length; i++) {
@@ -142,10 +142,35 @@ export function encList(out, v, depth, enc) {
   out.byte(0x5d);
 }
 
-export const PageOutcomeNames = ["page", "gap", "unavailable", "invalid_request", "record_too_large", "corrupt", "unsupported"];
-export const PageOutcomeUnknown = "refuse";
+export const PageOutcome = Object.freeze({
+  Page: "page",
+  Gap: "gap",
+  Unavailable: "unavailable",
+  InvalidRequest: "invalid_request",
+  RecordTooLarge: "record_too_large",
+  Corrupt: "corrupt",
+  Unsupported: "unsupported",
+});
 
-export function enc_attestation(out, v, depth) {
+export const ServiceErrorCode = Object.freeze({
+  HandlerError: "handler_error",
+  InvalidResult: "invalid_result",
+  UnknownVersion: "unknown_version",
+  UnknownService: "unknown_service",
+  UnknownMethod: "unknown_method",
+  WrongMode: "wrong_mode",
+  CallerUnavailable: "caller_unavailable",
+  IdentityRequired: "identity_required",
+  WrongUser: "wrong_user",
+  PolicyUnavailable: "policy_unavailable",
+  Forbidden: "forbidden",
+});
+
+export const historyErrorCodes = ["caller_unavailable", "identity_required", "wrong_user", "policy_unavailable", "forbidden"];
+
+export const historyCursorWords = ["end"];
+
+function writeAttestation(out, v, depth) {
   out.byte(0x7b);
   out.byte(0x0a);
   pad(out, depth + 1);
@@ -235,7 +260,7 @@ export function enc_attestation(out, v, depth) {
   out.byte(0x7d);
 }
 
-export function enc_record(out, v, depth) {
+function writeRecord(out, v, depth) {
   if (v.schema !== 1n) throw new Refusal("bad_schema",0);
   out.byte(0x7b);
   out.byte(0x0a);
@@ -267,7 +292,7 @@ export function enc_record(out, v, depth) {
     pad(out, depth + 1);
     esc(out, "identity");
     out.ascii(": ");
-    encList(out, v.identity, depth + 1, enc_attestation);
+    writeList(out, v.identity, depth + 1, writeAttestation);
   }
   if (v.job !== "") {
     out.byte(0x2c);
@@ -290,7 +315,7 @@ export function enc_record(out, v, depth) {
   out.byte(0x7d);
 }
 
-export function enc_page(out, v, depth) {
+function writePage(out, v, depth) {
     if (typeof v.outcome !== "string") throw new Refusal("wrong_type",0);
     if (v.outcome !== "page" && v.outcome !== "gap" && v.outcome !== "unavailable" && v.outcome !== "invalid_request" && v.outcome !== "record_too_large" && v.outcome !== "corrupt" && v.outcome !== "unsupported") { throw new Refusal("bad_enum",0); }
   out.byte(0x7b);
@@ -304,7 +329,7 @@ export function enc_page(out, v, depth) {
   pad(out, depth + 1);
   esc(out, "records");
   out.ascii(": ");
-  encList(out, v.records, depth + 1, enc_record);
+  writeList(out, v.records, depth + 1, writeRecord);
   out.byte(0x2c);
   out.byte(0x0a);
   pad(out, depth + 1);
@@ -316,25 +341,25 @@ export function enc_page(out, v, depth) {
   pad(out, depth + 1);
   esc(out, "at_end");
   out.ascii(": ");
-  out.ascii(v.at_end ? "true" : "false");
+  out.ascii(v.atEnd ? "true" : "false");
   out.byte(0x0a);
   pad(out, depth);
   out.byte(0x7d);
 }
 
-export function enc_oasinkwritearguments(out, v, depth) {
+function writeOASinkWriteArguments(out, v, depth) {
   out.byte(0x7b);
   out.byte(0x0a);
   pad(out, depth + 1);
   esc(out, "record");
   out.ascii(": ");
-  enc_record(out, v.record, depth + 1);
+  writeRecord(out, v.record, depth + 1);
   out.byte(0x0a);
   pad(out, depth);
   out.byte(0x7d);
 }
 
-export function enc_oahistoryreaderreadarguments(out, v, depth) {
+function writeOAHistoryReaderReadArguments(out, v, depth) {
   out.byte(0x7b);
   out.byte(0x0a);
   pad(out, depth + 1);
@@ -346,19 +371,19 @@ export function enc_oahistoryreaderreadarguments(out, v, depth) {
   pad(out, depth + 1);
   esc(out, "max_records");
   out.ascii(": ");
-  num(out, v.max_records);
+  num(out, v.maxRecords);
   out.byte(0x2c);
   out.byte(0x0a);
   pad(out, depth + 1);
   esc(out, "max_bytes");
   out.ascii(": ");
-  num(out, v.max_bytes);
+  num(out, v.maxBytes);
   out.byte(0x0a);
   pad(out, depth);
   out.byte(0x7d);
 }
 
-export function enc_oahistoryobserverobservearguments(out, v, depth) {
+function writeOAHistoryObserverObserveArguments(out, v, depth) {
   out.byte(0x7b);
   out.byte(0x0a);
   pad(out, depth + 1);
@@ -370,25 +395,25 @@ export function enc_oahistoryobserverobservearguments(out, v, depth) {
   pad(out, depth + 1);
   esc(out, "max_records");
   out.ascii(": ");
-  num(out, v.max_records);
+  num(out, v.maxRecords);
   out.byte(0x2c);
   out.byte(0x0a);
   pad(out, depth + 1);
   esc(out, "max_bytes");
   out.ascii(": ");
-  num(out, v.max_bytes);
+  num(out, v.maxBytes);
   out.byte(0x2c);
   out.byte(0x0a);
   pad(out, depth + 1);
   esc(out, "wait_ms");
   out.ascii(": ");
-  num(out, v.wait_ms);
+  num(out, v.waitMs);
   out.byte(0x0a);
   pad(out, depth);
   out.byte(0x7d);
 }
 
-export function enc_oaserviceframe(out, v, depth) {
+function writeOAServiceFrame(out, v, depth) {
   out.byte(0x7b);
   out.byte(0x0a);
   pad(out, depth + 1);
@@ -418,7 +443,7 @@ export function enc_oaserviceframe(out, v, depth) {
   out.byte(0x7d);
 }
 
-export function enc_oaservicereply(out, v, depth) {
+function writeOAServiceReply(out, v, depth) {
   out.byte(0x7b);
   out.byte(0x0a);
   pad(out, depth + 1);
@@ -454,7 +479,7 @@ export function enc_oaservicereply(out, v, depth) {
   out.byte(0x7d);
 }
 
-export function enc_oaserviceerror(out, v, depth) {
+function writeOAServiceError(out, v, depth) {
   out.byte(0x7b);
   out.byte(0x0a);
   pad(out, depth + 1);
@@ -472,25 +497,25 @@ export function enc_oaserviceerror(out, v, depth) {
   out.byte(0x7d);
 }
 
-export function enc_oahistoryreaderreadresult(out, v, depth) {
+function writeOAHistoryReaderReadResult(out, v, depth) {
   out.byte(0x7b);
   out.byte(0x0a);
   pad(out, depth + 1);
   esc(out, "value");
   out.ascii(": ");
-  enc_page(out, v.value, depth + 1);
+  writePage(out, v.value, depth + 1);
   out.byte(0x0a);
   pad(out, depth);
   out.byte(0x7d);
 }
 
-export function enc_oahistoryobserverobserveresult(out, v, depth) {
+function writeOAHistoryObserverObserveResult(out, v, depth) {
   out.byte(0x7b);
   out.byte(0x0a);
   pad(out, depth + 1);
   esc(out, "value");
   out.ascii(": ");
-  enc_page(out, v.value, depth + 1);
+  writePage(out, v.value, depth + 1);
   out.byte(0x0a);
   pad(out, depth);
   out.byte(0x7d);
@@ -498,7 +523,7 @@ export function enc_oahistoryobserverobserveresult(out, v, depth) {
 
 export function encode(v) {
   const out = new Out();
-  enc_record(out, v, 0);
+  writeRecord(out, v, 0);
   out.byte(0x0a);
   return out.bytes();
 }
@@ -803,7 +828,7 @@ function strMap(r) {
   return out;
 }
 
-function decodeList(r, elem) {
+function readList(r, elem) {
   if (r.at() !== 0x5b) throw r.refuse("wrong_type");
   r.enter();
   r.pos++;
@@ -918,42 +943,42 @@ export function newRecord() {
 // supplied cursor. gap requires an explicit restart with empty cursor; it never
 // silently restarts a stream.
 export function newPage() {
-  return { outcome: "", records: [], next: "", at_end: false };
+  return { outcome: "", records: [], next: "", atEnd: false };
 }
 
-export function newOASinkWriteArguments() {
+function newOASinkWriteArguments() {
   return { record: newRecord() };
 }
 
-export function newOAHistoryReaderReadArguments() {
-  return { cursor: "", max_records: 0n, max_bytes: 0n };
+function newOAHistoryReaderReadArguments() {
+  return { cursor: "", maxRecords: 0n, maxBytes: 0n };
 }
 
-export function newOAHistoryObserverObserveArguments() {
-  return { cursor: "", max_records: 0n, max_bytes: 0n, wait_ms: 0n };
+function newOAHistoryObserverObserveArguments() {
+  return { cursor: "", maxRecords: 0n, maxBytes: 0n, waitMs: 0n };
 }
 
-export function newOAServiceFrame() {
+function newOAServiceFrame() {
   return { version: 0, service: "", method: "", arguments: "" };
 }
 
-export function newOAServiceReply() {
+function newOAServiceReply() {
   return { version: 0, service: "", method: "", ok: false, payload: "" };
 }
 
-export function newOAServiceError() {
+function newOAServiceError() {
   return { code: "", message: "" };
 }
 
-export function newOAHistoryReaderReadResult() {
+function newOAHistoryReaderReadResult() {
   return { value: newPage() };
 }
 
-export function newOAHistoryObserverObserveResult() {
+function newOAHistoryObserverObserveResult() {
   return { value: newPage() };
 }
 
-function decode_attestation(r) {
+function readAttestation(r) {
   if (r.at() !== 0x7b) throw r.refuse("wrong_type");
   r.enter();
   r.pos++;
@@ -1032,7 +1057,7 @@ function decode_attestation(r) {
   return v;
 }
 
-function decode_record(r) {
+function readRecord(r) {
   if (r.at() !== 0x7b) throw r.refuse("wrong_type");
   r.enter();
   r.pos++;
@@ -1067,7 +1092,7 @@ function decode_record(r) {
       } else if (key === "identity") {
         if (seen & 16) throw r.refuse("duplicate_field");
         seen |= 16;
-        v.identity = decodeList(r, decode_attestation);
+        v.identity = readList(r, readAttestation);
       } else if (key === "job") {
         if (seen & 32) throw r.refuse("duplicate_field");
         seen |= 32;
@@ -1092,7 +1117,7 @@ function decode_record(r) {
   return v;
 }
 
-function decode_page(r) {
+function readPage(r) {
   if (r.at() !== 0x7b) throw r.refuse("wrong_type");
   r.enter();
   r.pos++;
@@ -1115,7 +1140,7 @@ function decode_page(r) {
       } else if (key === "records") {
         if (seen & 2) throw r.refuse("duplicate_field");
         seen |= 2;
-        v.records = decodeList(r, decode_record);
+        v.records = readList(r, readRecord);
       } else if (key === "next") {
         if (seen & 4) throw r.refuse("duplicate_field");
         seen |= 4;
@@ -1123,7 +1148,7 @@ function decode_page(r) {
       } else if (key === "at_end") {
         if (seen & 8) throw r.refuse("duplicate_field");
         seen |= 8;
-        v.at_end = r.boolean();
+        v.atEnd = r.boolean();
       } else {
         throw r.refuse("unknown_field");
       }
@@ -1140,7 +1165,7 @@ function decode_page(r) {
   return v;
 }
 
-function decode_oasinkwritearguments(r) {
+function readOASinkWriteArguments(r) {
   if (r.at() !== 0x7b) throw r.refuse("wrong_type");
   r.enter();
   r.pos++;
@@ -1159,7 +1184,7 @@ function decode_oasinkwritearguments(r) {
       if (key === "record") {
         if (seen & 1) throw r.refuse("duplicate_field");
         seen |= 1;
-        v.record = decode_record(r);
+        v.record = readRecord(r);
       } else {
         throw r.refuse("unknown_field");
       }
@@ -1175,7 +1200,7 @@ function decode_oasinkwritearguments(r) {
   return v;
 }
 
-function decode_oahistoryreaderreadarguments(r) {
+function readOAHistoryReaderReadArguments(r) {
   if (r.at() !== 0x7b) throw r.refuse("wrong_type");
   r.enter();
   r.pos++;
@@ -1198,11 +1223,11 @@ function decode_oahistoryreaderreadarguments(r) {
       } else if (key === "max_records") {
         if (seen & 2) throw r.refuse("duplicate_field");
         seen |= 2;
-        v.max_records = r.integer(-9223372036854775808n, 9223372036854775807n);
+        v.maxRecords = r.integer(-9223372036854775808n, 9223372036854775807n);
       } else if (key === "max_bytes") {
         if (seen & 4) throw r.refuse("duplicate_field");
         seen |= 4;
-        v.max_bytes = r.integer(-9223372036854775808n, 9223372036854775807n);
+        v.maxBytes = r.integer(-9223372036854775808n, 9223372036854775807n);
       } else {
         throw r.refuse("unknown_field");
       }
@@ -1218,7 +1243,7 @@ function decode_oahistoryreaderreadarguments(r) {
   return v;
 }
 
-function decode_oahistoryobserverobservearguments(r) {
+function readOAHistoryObserverObserveArguments(r) {
   if (r.at() !== 0x7b) throw r.refuse("wrong_type");
   r.enter();
   r.pos++;
@@ -1241,15 +1266,15 @@ function decode_oahistoryobserverobservearguments(r) {
       } else if (key === "max_records") {
         if (seen & 2) throw r.refuse("duplicate_field");
         seen |= 2;
-        v.max_records = r.integer(-9223372036854775808n, 9223372036854775807n);
+        v.maxRecords = r.integer(-9223372036854775808n, 9223372036854775807n);
       } else if (key === "max_bytes") {
         if (seen & 4) throw r.refuse("duplicate_field");
         seen |= 4;
-        v.max_bytes = r.integer(-9223372036854775808n, 9223372036854775807n);
+        v.maxBytes = r.integer(-9223372036854775808n, 9223372036854775807n);
       } else if (key === "wait_ms") {
         if (seen & 8) throw r.refuse("duplicate_field");
         seen |= 8;
-        v.wait_ms = r.integer(-9223372036854775808n, 9223372036854775807n);
+        v.waitMs = r.integer(-9223372036854775808n, 9223372036854775807n);
       } else {
         throw r.refuse("unknown_field");
       }
@@ -1265,7 +1290,7 @@ function decode_oahistoryobserverobservearguments(r) {
   return v;
 }
 
-function decode_oaserviceframe(r) {
+function readOAServiceFrame(r) {
   if (r.at() !== 0x7b) throw r.refuse("wrong_type");
   r.enter();
   r.pos++;
@@ -1312,7 +1337,7 @@ function decode_oaserviceframe(r) {
   return v;
 }
 
-function decode_oaservicereply(r) {
+function readOAServiceReply(r) {
   if (r.at() !== 0x7b) throw r.refuse("wrong_type");
   r.enter();
   r.pos++;
@@ -1363,7 +1388,7 @@ function decode_oaservicereply(r) {
   return v;
 }
 
-function decode_oaserviceerror(r) {
+function readOAServiceError(r) {
   if (r.at() !== 0x7b) throw r.refuse("wrong_type");
   r.enter();
   r.pos++;
@@ -1402,7 +1427,7 @@ function decode_oaserviceerror(r) {
   return v;
 }
 
-function decode_oahistoryreaderreadresult(r) {
+function readOAHistoryReaderReadResult(r) {
   if (r.at() !== 0x7b) throw r.refuse("wrong_type");
   r.enter();
   r.pos++;
@@ -1421,7 +1446,7 @@ function decode_oahistoryreaderreadresult(r) {
       if (key === "value") {
         if (seen & 1) throw r.refuse("duplicate_field");
         seen |= 1;
-        v.value = decode_page(r);
+        v.value = readPage(r);
       } else {
         throw r.refuse("unknown_field");
       }
@@ -1437,7 +1462,7 @@ function decode_oahistoryreaderreadresult(r) {
   return v;
 }
 
-function decode_oahistoryobserverobserveresult(r) {
+function readOAHistoryObserverObserveResult(r) {
   if (r.at() !== 0x7b) throw r.refuse("wrong_type");
   r.enter();
   r.pos++;
@@ -1456,7 +1481,7 @@ function decode_oahistoryobserverobserveresult(r) {
       if (key === "value") {
         if (seen & 1) throw r.refuse("duplicate_field");
         seen |= 1;
-        v.value = decode_page(r);
+        v.value = readPage(r);
       } else {
         throw r.refuse("unknown_field");
       }
@@ -1475,16 +1500,16 @@ function decode_oahistoryobserverobserveresult(r) {
 export function decode(data) {
   const r = new Reader(data);
   r.ws();
-  const v = decode_record(r);
+  const v = readRecord(r);
   r.ws();
   if (r.pos < r.buf.length) throw r.refuse("trailing_bytes");
   return v;
 }
 
 // refusals is in the order two of them are chosen between.
-export const refusals = ["malformed", "bad_string", "number_spelling", "wrong_type", "bad_timestamp", "depth_exceeded", "duplicate_field", "unknown_field", "missing_field", "bad_schema", "bad_enum", "trailing_bytes"];
+const refusals = ["malformed", "bad_string", "number_spelling", "wrong_type", "bad_timestamp", "depth_exceeded", "duplicate_field", "unknown_field", "missing_field", "bad_schema", "bad_enum", "trailing_bytes"];
 
-export function refusalRank(word) {
+function refusalRank(word) {
   return refusals.indexOf(word);
 }
 
@@ -1543,10 +1568,10 @@ function _serviceCheck(kind, value, depth = 0) {
 const _serviceRecords = Object.create(null);
 _serviceRecords["Attestation"] = [["by","string","never"],["verified","bool","never"],["hop","i64","never"],["program","string","zero"],["host","string","zero"],["user","string","zero"],["exe","string","zero"],["uid","i64","never"],["gid","i64","never"],["pid","i64","never"],["key","string","zero"],["mac","string","zero"],];
 _serviceRecords["Record"] = [["schema","i64","never"],["time","string","never"],["level","i64","never"],["msg","string","never"],["identity","list<Attestation>","zero"],["job","string","zero"],["attrs","map<string,string>","zero"],];
-_serviceRecords["Page"] = [["outcome","string","never"],["records","list<Record>","never"],["next","string","never"],["at_end","bool","never"],];
+_serviceRecords["Page"] = [["outcome","string","never"],["records","list<Record>","never"],["next","string","never"],["atEnd","bool","never"],];
 _serviceRecords["OASinkWriteArguments"] = [["record","Record","never"],];
-_serviceRecords["OAHistoryReaderReadArguments"] = [["cursor","string","never"],["max_records","i64","never"],["max_bytes","i64","never"],];
-_serviceRecords["OAHistoryObserverObserveArguments"] = [["cursor","string","never"],["max_records","i64","never"],["max_bytes","i64","never"],["wait_ms","i64","never"],];
+_serviceRecords["OAHistoryReaderReadArguments"] = [["cursor","string","never"],["maxRecords","i64","never"],["maxBytes","i64","never"],];
+_serviceRecords["OAHistoryObserverObserveArguments"] = [["cursor","string","never"],["maxRecords","i64","never"],["maxBytes","i64","never"],["waitMs","i64","never"],];
 _serviceRecords["OAServiceFrame"] = [["version","i32","never"],["service","string","never"],["method","string","never"],["arguments","json","never"],];
 _serviceRecords["OAServiceReply"] = [["version","i32","never"],["service","string","never"],["method","string","never"],["ok","bool","never"],["payload","json","never"],];
 _serviceRecords["OAServiceError"] = [["code","string","never"],["message","string","never"],];
@@ -1554,18 +1579,18 @@ _serviceRecords["OAHistoryReaderReadResult"] = [["value","Page","never"],];
 _serviceRecords["OAHistoryObserverObserveResult"] = [["value","Page","never"],];
 
 function _serviceRequest(service, method, argumentsBytes) {
-  return _serviceEncode(enc_oaserviceframe, {
+  return _serviceEncode(writeOAServiceFrame, {
     version:1, service, method, arguments:new TextDecoder("utf-8",{fatal:true}).decode(argumentsBytes)
   },0);
 }
 
 function _serviceResponse(frame, service, method) {
   if (!(frame instanceof Uint8Array)) throw new TypeError("transport frame must be Uint8Array");
-  const reply = _serviceDecode(decode_oaservicereply, frame, 0);
+  const reply = _serviceDecode(readOAServiceReply, frame, 0);
   if (reply.version !== 1) throw new DispatchError("unknown_version");
   if (reply.service !== service || reply.method !== method) throw new DispatchError("mismatched_response");
   if (!reply.ok) {
-    const error = _serviceDecode(decode_oaserviceerror, reply.payload, 1);
+    const error = _serviceDecode(readOAServiceError, reply.payload, 1);
     if (!error.code) throw new DispatchError("invalid_error");
     throw new ServiceError(error.code, error.message);
   }
@@ -1574,51 +1599,54 @@ function _serviceResponse(frame, service, method) {
 
 export class SinkClient {
   constructor(transport) { this._transport = transport; }
-  async Write(arg0) {
-    const args = newOASinkWriteArguments();
-    args["record"] = arg0;
-    _serviceCheck("OASinkWriteArguments", args);
-    const payload = _serviceEncode(enc_oasinkwritearguments, args, 1);
-    _serviceDecode(decode_oasinkwritearguments, payload, 1);
-    const request = _serviceRequest("abstraction.logging/sink@1", "Write", payload);
-    await this._transport.writeFrame(request);
+
+  async write(record) {
+    const _args = newOASinkWriteArguments();
+    _args.record = record;
+    _serviceCheck("OASinkWriteArguments", _args);
+    const _payload = _serviceEncode(writeOASinkWriteArguments, _args, 1);
+    _serviceDecode(readOASinkWriteArguments, _payload, 1);
+    const _request = _serviceRequest("abstraction.logging/sink@1", "Write", _payload);
+    await this._transport.writeFrame(_request);
   }
 }
 export const SinkService = Object.freeze({wireName:"abstraction.logging/sink@1",Client:SinkClient});
 
 export class HistoryReaderClient {
   constructor(transport) { this._transport = transport; }
-  async Read(arg0,arg1,arg2) {
-    const args = newOAHistoryReaderReadArguments();
-    args["cursor"] = arg0;
-    args["max_records"] = arg1;
-    args["max_bytes"] = arg2;
-    _serviceCheck("OAHistoryReaderReadArguments", args);
-    const payload = _serviceEncode(enc_oahistoryreaderreadarguments, args, 1);
-    _serviceDecode(decode_oahistoryreaderreadarguments, payload, 1);
-    const request = _serviceRequest("abstraction.logging/reader@1", "Read", payload);
-    const reply = _serviceResponse(await this._transport.exchangeFrame(request), "abstraction.logging/reader@1", "Read");
-    const result = _serviceDecode(decode_oahistoryreaderreadresult, reply, 1);
-    return result.value;
+
+  async read(cursor, maxRecords, maxBytes) {
+    const _args = newOAHistoryReaderReadArguments();
+    _args.cursor = cursor;
+    _args.maxRecords = maxRecords;
+    _args.maxBytes = maxBytes;
+    _serviceCheck("OAHistoryReaderReadArguments", _args);
+    const _payload = _serviceEncode(writeOAHistoryReaderReadArguments, _args, 1);
+    _serviceDecode(readOAHistoryReaderReadArguments, _payload, 1);
+    const _request = _serviceRequest("abstraction.logging/reader@1", "Read", _payload);
+    const _reply = _serviceResponse(await this._transport.exchangeFrame(_request), "abstraction.logging/reader@1", "Read");
+    const _result = _serviceDecode(readOAHistoryReaderReadResult, _reply, 1);
+    return _result.value;
   }
 }
 export const HistoryReaderService = Object.freeze({wireName:"abstraction.logging/reader@1",Client:HistoryReaderClient});
 
 export class HistoryObserverClient {
   constructor(transport) { this._transport = transport; }
-  async Observe(arg0,arg1,arg2,arg3) {
-    const args = newOAHistoryObserverObserveArguments();
-    args["cursor"] = arg0;
-    args["max_records"] = arg1;
-    args["max_bytes"] = arg2;
-    args["wait_ms"] = arg3;
-    _serviceCheck("OAHistoryObserverObserveArguments", args);
-    const payload = _serviceEncode(enc_oahistoryobserverobservearguments, args, 1);
-    _serviceDecode(decode_oahistoryobserverobservearguments, payload, 1);
-    const request = _serviceRequest("abstraction.logging/observer@1", "Observe", payload);
-    const reply = _serviceResponse(await this._transport.exchangeFrame(request), "abstraction.logging/observer@1", "Observe");
-    const result = _serviceDecode(decode_oahistoryobserverobserveresult, reply, 1);
-    return result.value;
+
+  async observe(cursor, maxRecords, maxBytes, waitMs) {
+    const _args = newOAHistoryObserverObserveArguments();
+    _args.cursor = cursor;
+    _args.maxRecords = maxRecords;
+    _args.maxBytes = maxBytes;
+    _args.waitMs = waitMs;
+    _serviceCheck("OAHistoryObserverObserveArguments", _args);
+    const _payload = _serviceEncode(writeOAHistoryObserverObserveArguments, _args, 1);
+    _serviceDecode(readOAHistoryObserverObserveArguments, _payload, 1);
+    const _request = _serviceRequest("abstraction.logging/observer@1", "Observe", _payload);
+    const _reply = _serviceResponse(await this._transport.exchangeFrame(_request), "abstraction.logging/observer@1", "Observe");
+    const _result = _serviceDecode(readOAHistoryObserverObserveResult, _reply, 1);
+    return _result.value;
   }
 }
 export const HistoryObserverService = Object.freeze({wireName:"abstraction.logging/observer@1",Client:HistoryObserverClient});

@@ -14,8 +14,13 @@ import (
 	wire "github.com/openabstractions/abstraction-logging/go/abstraction/logging"
 )
 
+// EndCursor is the cursor word that begins at the current end of retained
+// history (wire.HistoryCursorWords).
+const EndCursor = "end"
+
 // Read supplies bounded history for a service-owned append-only sink. Cursors
 // belong to this open sink instance; reopening requires an explicit restart.
+// EndCursor starts at the current end and returns no records.
 // This optional provider interface carries no path in its application result.
 // External in-place rewriting is outside the append-only provider lifecycle.
 func (s *FileSink) Read(cursor string, maxRecords, maxBytes int64) (wire.Page, error) {
@@ -24,7 +29,7 @@ func (s *FileSink) Read(cursor string, maxRecords, maxBytes int64) (wire.Page, e
 	return s.readHistoryLocked(cursor, maxRecords, maxBytes)
 }
 func (s *FileSink) readHistoryLocked(cursor string, maxRecords, maxBytes int64) (wire.Page, error) {
-	refuse := func(outcome string) (wire.Page, error) {
+	refuse := func(outcome wire.PageOutcome) (wire.Page, error) {
 		return wire.Page{Outcome: outcome, Records: []wire.Record{}, Next: cursor}, nil
 	}
 	if maxRecords < 1 || maxRecords > 256 || maxBytes < 1 || maxBytes > 65536 {
@@ -38,7 +43,7 @@ func (s *FileSink) readHistoryLocked(cursor string, maxRecords, maxBytes int64) 
 		s.historyEpoch = hex.EncodeToString(key[:])
 	}
 	var offset int64
-	if cursor != "" {
+	if cursor != "" && cursor != EndCursor {
 		parts := strings.Split(cursor, ":")
 		if len(parts) != 2 || parts[0] != s.historyEpoch {
 			return refuse(wire.PageOutcomeGap)
@@ -61,6 +66,9 @@ func (s *FileSink) readHistoryLocked(cursor string, maxRecords, maxBytes int64) 
 	info, err := f.Stat()
 	if err != nil {
 		return refuse(wire.PageOutcomeUnavailable)
+	}
+	if cursor == EndCursor {
+		offset = info.Size()
 	}
 	if !os.SameFile(current, info) || offset > info.Size() {
 		return refuse(wire.PageOutcomeGap)
@@ -149,5 +157,11 @@ func (s *FileSink) ObserveContext(ctx context.Context, cursor string, maxRecords
 	if e = ctx.Err(); e != nil {
 		return wire.Page{}, e
 	}
-	return s.Read(cursor, maxRecords, maxBytes)
+	// Reread from the position the first read resolved, so EndCursor keeps the
+	// end fixed when the call began. A refusal keeps the caller's cursor.
+	page, e = s.Read(page.Next, maxRecords, maxBytes)
+	if e == nil && page.Outcome != wire.PageOutcomePage {
+		page.Next = cursor
+	}
+	return page, e
 }

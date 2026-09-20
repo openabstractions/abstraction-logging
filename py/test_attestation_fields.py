@@ -2,7 +2,7 @@
 from pathlib import Path
 import unittest
 
-from abstraction.logging import rec
+import abstraction.logging as rec
 
 DATA = Path(__file__).resolve().parents[1] / "testdata" / "records" / "attestation-fields.jsonl"
 WANT = [

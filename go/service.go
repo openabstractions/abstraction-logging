@@ -20,15 +20,15 @@ const EnvService = "ABSTRACTION_LOG_SERVICE"
 // One record per write, newline framed, the same bytes as the file sink, and
 // the chain goes as it is. A sink cannot tell a stamp its own service made
 // from one a hostile writer attached; the receiver can, and does.
+//
+// A service that cannot be reached is the write's error, and the record goes
+// nowhere else. A program that wants records kept locally while the service is
+// away selects that explicitly with LocalFallbackSink.
 type ServiceSink struct {
 	addr string
 
 	mu   sync.Mutex
 	conn net.Conn
-
-	// Fallback receives records when the service is unreachable. Logging must
-	// not fail the caller and must not block it.
-	Fallback Sink
 
 	// Timeout bounds a single write. A wedged service must not stall the
 	// program logging to it — the moment a program is logging heavily is the
@@ -36,25 +36,69 @@ type ServiceSink struct {
 	Timeout time.Duration
 }
 
-func NewServiceSink(addr string, fallback Sink) *ServiceSink {
-	if fallback == nil {
-		fallback = DiscardSink{}
-	}
-	return &ServiceSink{addr: addr, Fallback: fallback, Timeout: 2 * time.Second}
+func NewServiceSink(addr string) *ServiceSink {
+	return &ServiceSink{addr: addr, Timeout: 2 * time.Second}
 }
 
 func (s *ServiceSink) Separation() Separation { return SeparationPeer }
 
+// Write sends one record. An unreachable service returns the dial or write
+// error. Nothing is retried inside the caller's log statement, and nothing is
+// written anywhere else.
 func (s *ServiceSink) Write(r Record) error {
 	b, err := r.Encode()
 	if err != nil {
 		return err
 	}
-	if err := s.send(b); err != nil {
-		return s.Fallback.Write(r)
+	return s.send(b)
+}
+
+// LocalFallbackSink is a local provider the application selects by name. Each
+// record goes to Service, and a record Service cannot deliver goes to Local
+// instead [LOG-S5]. It is the environment chain's degradation: LegacyAuto builds
+// it when a service socket is configured.
+//
+// Service is the socket sink this package addresses by path. A sink resolved
+// through the facade is never wrapped here. It reports an absent service as the
+// facade's resolution error [LOG-S11], because VISION.md 2026-09-16 rules that
+// "a logging seam that quietly writes to stderr instead is the same defect".
+// That sink's planned explicit fallback is a native logger the adopter installs
+// beside the facade, designed and not built.
+type LocalFallbackSink struct {
+	Service *ServiceSink
+	Local   Sink
+}
+
+// NewLocalFallbackSink selects the local fallback explicitly. A nil local sink
+// discards, the honest reading of a chain whose last rung is nothing.
+func NewLocalFallbackSink(service *ServiceSink, local Sink) *LocalFallbackSink {
+	if local == nil {
+		local = DiscardSink{}
+	}
+	return &LocalFallbackSink{Service: service, Local: local}
+}
+
+// Write sends the record to Service and, when that fails, writes it to Local
+// and returns Local's result.
+func (s *LocalFallbackSink) Write(r Record) error {
+	if err := s.Service.Write(r); err != nil {
+		return s.Local.Write(r)
 	}
 	return nil
 }
+
+// Separation is the weaker of the two sinks' separations, since any record can
+// land in either.
+func (s *LocalFallbackSink) Separation() Separation {
+	service, local := SeparationOf(s.Service), SeparationOf(s.Local)
+	if local < service {
+		return local
+	}
+	return service
+}
+
+// Close closes the service connection. Local belongs to whoever opened it.
+func (s *LocalFallbackSink) Close() error { return s.Service.Close() }
 
 func (s *ServiceSink) send(b []byte) error {
 	s.mu.Lock()
@@ -68,8 +112,8 @@ func (s *ServiceSink) send(b []byte) error {
 	}
 	s.conn.SetWriteDeadline(time.Now().Add(s.timeout()))
 	if _, err := s.conn.Write(b); err != nil {
-		// One reconnect, then the fallback. A service restarting is ordinary;
-		// retrying forever inside a caller's log statement is not.
+		// Drop the connection so the next record dials again. A service
+		// restarting is ordinary; retrying inside a caller's log statement is not.
 		s.conn.Close()
 		s.conn = nil
 		return err
@@ -95,13 +139,15 @@ func (s *ServiceSink) Close() error {
 	return nil
 }
 
-// LegacyAuto explicitly selects the legacy environment/file provider: a service
-// sink if one is configured, a file if one is configured, else a working no-op.
-// Applications use Default or the resolved logging client.
+// LegacyAuto explicitly selects the environment chain, a local provider. A
+// configured service socket gives a LocalFallbackSink over the configured file
+// or nothing, a configured file gives that file, and nothing configured gives a
+// working no-op. An application adopting the logging capability uses Default,
+// Resolve or the resolved logging client instead.
 func LegacyAuto(program string) Sink {
 	file := FromEnv()
 	if addr := os.Getenv(EnvService); addr != "" {
-		return NewServiceSink(addr, file)
+		return NewLocalFallbackSink(NewServiceSink(addr), file)
 	}
 	return file
 }

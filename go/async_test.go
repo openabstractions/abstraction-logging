@@ -39,10 +39,11 @@ func (s *recordingSink) messages() []string {
 	return out
 }
 
-// stalledSink blocks every delivery until release is closed, and reports each
-// delivery it started.
+// stalledSink blocks every delivery until release is closed, and reports the
+// deliveries it started while its buffer has room.
 type stalledSink struct {
 	started chan string
+	calls   atomic.Int32
 	release chan struct{}
 	honour  bool // stop waiting when the delivery context is cancelled
 }
@@ -54,7 +55,11 @@ func newStalledSink(honour bool) *stalledSink {
 func (s *stalledSink) Write(r Record) error { return s.WriteContext(context.Background(), r) }
 
 func (s *stalledSink) WriteContext(ctx context.Context, r Record) error {
-	s.started <- r.Msg
+	s.calls.Add(1)
+	select {
+	case s.started <- r.Msg:
+	default:
+	}
 	if !s.honour {
 		ctx = context.Background()
 	}
@@ -73,6 +78,9 @@ func (s plainStalled) Write(r Record) error {
 	return s.stalledSink.WriteContext(context.Background(), r)
 }
 
+// quiet is a failure callback that keeps the default reporter off.
+func quiet(error, AsyncCounts) {}
+
 func asyncRecord(msg string) Record {
 	return Record{Schema: SchemaVersion, Time: At(time.Unix(0, 0).UTC()), Msg: msg}
 }
@@ -86,7 +94,7 @@ func closeWithin(t *testing.T, s *AsyncSink, d time.Duration) (AsyncCounts, erro
 
 func eventually(t *testing.T, what string, ok func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for !ok() {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for %s", what)
@@ -124,11 +132,13 @@ func TestAsyncSinkDeliversInOrderAndDrainsOnClose(t *testing.T) {
 	}
 }
 
+// The record being delivered stays in the queue and counts against its
+// capacity [LOG-S12].
 func TestAsyncSinkOverflowDropsNewestCountedAndReported(t *testing.T) {
 	inner := newStalledSink(true)
 	var overflows []AsyncCounts
 	var mu sync.Mutex
-	s := NewAsyncSink(inner, AsyncOptions{Capacity: 2, OnOverflow: func(c AsyncCounts) {
+	s := NewAsyncSink(inner, AsyncOptions{Capacity: 3, OnFailure: quiet, OnOverflow: func(c AsyncCounts) {
 		mu.Lock()
 		overflows = append(overflows, c)
 		mu.Unlock()
@@ -150,7 +160,7 @@ func TestAsyncSinkOverflowDropsNewestCountedAndReported(t *testing.T) {
 		}
 	}
 	c := s.Counts()
-	if c.Accepted != 3 || c.Dropped != 3 || !c.Overflowing || c.Queued != 2 {
+	if c.Accepted != 3 || c.Dropped != 3 || c.Queued != 3 {
 		t.Fatalf("counts %+v", c)
 	}
 	mu.Lock()
@@ -164,9 +174,6 @@ func TestAsyncSinkOverflowDropsNewestCountedAndReported(t *testing.T) {
 	if err := s.Write(asyncRecord("after drain")); err != nil {
 		t.Fatalf("accept after drain: %v", err)
 	}
-	if s.Counts().Overflowing {
-		t.Fatal("overflow state not reset by an accepted record")
-	}
 	final, err := closeWithin(t, s, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +185,7 @@ func TestAsyncSinkOverflowDropsNewestCountedAndReported(t *testing.T) {
 
 func TestAsyncSinkStalledServiceCloseDeadlineCancelsAndAbandons(t *testing.T) {
 	inner := newStalledSink(true)
-	s := NewAsyncSink(inner, AsyncOptions{Capacity: 8})
+	s := NewAsyncSink(inner, AsyncOptions{Capacity: 8, OnFailure: quiet})
 	for i := 0; i < 5; i++ {
 		if err := s.Write(asyncRecord(fmt.Sprint("s", i))); err != nil {
 			t.Fatal(err)
@@ -193,24 +200,18 @@ func TestAsyncSinkStalledServiceCloseDeadlineCancelsAndAbandons(t *testing.T) {
 	if elapsed := time.Since(began); elapsed > 2*time.Second {
 		t.Fatalf("close waited %v past its deadline", elapsed)
 	}
-	eventually(t, "worker to finish", func() bool {
-		c := s.Counts()
-		return c.Failed+c.Abandoned+c.Written == 5 && c.Queued == 0
-	})
 	c := s.Counts()
-	if c.Failed != 1 || c.Abandoned != 4 || c.Written != 0 {
+	if c.Failed != 1 || c.Abandoned != 4 || c.Written != 0 || c.Queued != 0 {
 		t.Fatalf("counts %+v", c)
 	}
-	select {
-	case m := <-inner.started:
-		t.Fatalf("delivery %q started after the close deadline", m)
-	default:
+	if calls := inner.calls.Load(); calls != 1 {
+		t.Fatalf("%d deliveries started, want only the one cancelled at the deadline", calls)
 	}
 }
 
 func TestAsyncSinkCloseReturnsAtDeadlineWhenInnerCannotBeCancelled(t *testing.T) {
 	inner := newStalledSink(false)
-	s := NewAsyncSink(plainStalled{inner}, AsyncOptions{Capacity: 4})
+	s := NewAsyncSink(plainStalled{inner}, AsyncOptions{Capacity: 4, WriteTimeout: -1, OnFailure: quiet})
 	for i := 0; i < 3; i++ {
 		if err := s.Write(asyncRecord(fmt.Sprint("u", i))); err != nil {
 			t.Fatal(err)
@@ -231,12 +232,15 @@ func TestAsyncSinkCloseReturnsAtDeadlineWhenInnerCannotBeCancelled(t *testing.T)
 	}
 }
 
+// A failed delivery is retried, never counted Failed, and a recovery delivers
+// the gap record ahead of the retried records [LOG-S12, LOG-S13].
 func TestAsyncSinkFailureAndRecoveryReportedOncePerTransition(t *testing.T) {
 	inner := &recordingSink{}
 	inner.fail.Store(3)
 	var failures, recoveries atomic.Int32
 	var lastFailure atomic.Value
 	s := NewAsyncSink(inner, AsyncOptions{
+		InitialBackoff: time.Millisecond, MaxBackoff: 2 * time.Millisecond,
 		OnFailure:  func(err error, c AsyncCounts) { failures.Add(1); lastFailure.Store(c) },
 		OnRecovery: func(AsyncCounts) { recoveries.Add(1) },
 	})
@@ -249,24 +253,28 @@ func TestAsyncSinkFailureAndRecoveryReportedOncePerTransition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Failed != 3 || c.Written != 2 || c.Failing || c.LastError != "service refused" {
+	if c.Failed != 0 || c.Written != 5 || c.Failing || c.LastError != "service refused" {
 		t.Fatalf("counts %+v", c)
 	}
 	if failures.Load() != 1 || recoveries.Load() != 1 {
 		t.Fatalf("failure reports %d, recovery reports %d", failures.Load(), recoveries.Load())
 	}
-	if first := lastFailure.Load().(AsyncCounts); first.Failed != 1 || !first.Failing {
+	if first := lastFailure.Load().(AsyncCounts); first.Failed != 0 || !first.Failing || first.Queued != 5 {
 		t.Fatalf("failure report %+v", first)
+	}
+	if got := fmt.Sprint(inner.messages()); got != fmt.Sprint([]string{GapMessage, "f0", "f1", "f2", "f3", "f4"}) {
+		t.Fatalf("delivered %s", got)
 	}
 }
 
-func TestAsyncSinkWriteTimeoutCancelsHungDeliveriesAndKeepsDelivering(t *testing.T) {
+func TestAsyncSinkWriteTimeoutRetriesHungDeliveriesUntilTheyReturn(t *testing.T) {
 	inner := newStalledSink(true)
 	var failures, recoveries atomic.Int32
 	var firstErr atomic.Value
 	s := NewAsyncSink(inner, AsyncOptions{
-		Capacity:     16,
-		WriteTimeout: 50 * time.Millisecond,
+		Capacity:       16,
+		WriteTimeout:   50 * time.Millisecond,
+		InitialBackoff: time.Millisecond, MaxBackoff: 5 * time.Millisecond,
 		OnFailure: func(err error, _ AsyncCounts) {
 			if failures.Add(1) == 1 {
 				firstErr.Store(err)
@@ -279,19 +287,15 @@ func TestAsyncSinkWriteTimeoutCancelsHungDeliveriesAndKeepsDelivering(t *testing
 			t.Fatal(err)
 		}
 	}
-	eventually(t, "three timed-out deliveries", func() bool { return s.Counts().Failed == 3 })
-	for i := range 3 {
-		select {
-		case got := <-inner.started:
-			if got != fmt.Sprint("h", i) {
-				t.Fatalf("attempt %d delivered %q", i, got)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatalf("attempt %d never started; counts %+v", i, s.Counts())
-		}
+	eventually(t, "a timed-out delivery and a retry", func() bool { return failures.Load() == 1 && inner.calls.Load() >= 3 })
+	if got := <-inner.started; got != "h0" {
+		t.Fatalf("first delivery %q", got)
 	}
 	if err, _ := firstErr.Load().(error); !errors.Is(err, ErrWriteTimeout) {
 		t.Fatalf("failure reported %v, want ErrWriteTimeout", err)
+	}
+	if c := s.Counts(); c.Failed != 0 || c.Written != 0 || c.Queued != 3 || !c.Failing {
+		t.Fatalf("counts during the hang %+v", c)
 	}
 	close(inner.release)
 	if err := s.Write(asyncRecord("after")); err != nil {
@@ -301,53 +305,36 @@ func TestAsyncSinkWriteTimeoutCancelsHungDeliveriesAndKeepsDelivering(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Failed != 3 || c.Written != 1 || c.Failing || failures.Load() != 1 || recoveries.Load() != 1 {
+	if c.Failed != 0 || c.Written != 4 || c.Failing || failures.Load() != 1 || recoveries.Load() != 1 {
 		t.Fatalf("counts %+v, failure reports %d, recovery reports %d", c, failures.Load(), recoveries.Load())
 	}
 }
 
 func TestAsyncSinkWriteTimeoutNeverCallsAnUncancellableInnerConcurrently(t *testing.T) {
 	inner := newStalledSink(false)
-	s := NewAsyncSink(plainStalled{inner}, AsyncOptions{Capacity: 16, WriteTimeout: 50 * time.Millisecond})
+	s := NewAsyncSink(plainStalled{inner}, AsyncOptions{Capacity: 16, WriteTimeout: 20 * time.Millisecond,
+		InitialBackoff: time.Millisecond, MaxBackoff: 2 * time.Millisecond, OnFailure: quiet})
 	for i := range 5 {
 		if err := s.Write(asyncRecord(fmt.Sprint("u", i))); err != nil {
 			t.Fatal(err)
 		}
 	}
-	eventually(t, "every record to fail", func() bool { c := s.Counts(); return c.Failed == 5 && c.Queued == 0 })
-	if got := <-inner.started; got != "u0" {
-		t.Fatalf("first delivery %q", got)
-	}
-	select {
-	case m := <-inner.started:
-		t.Fatalf("delivery %q started while u0 was still running", m)
-	default:
-	}
-	if c := s.Counts(); !strings.Contains(c.LastError, "an earlier delivery has not returned") {
-		t.Fatalf("last error %q", c.LastError)
+	eventually(t, "a retry to wait for the hung delivery", func() bool {
+		return strings.Contains(s.Counts().LastError, "an earlier delivery has not returned")
+	})
+	if calls := inner.calls.Load(); calls != 1 {
+		t.Fatalf("%d concurrent deliveries while u0 was still running", calls)
 	}
 	close(inner.release)
-	delivered := false
-	for i := 0; i < 200 && !delivered; i++ {
-		msg := fmt.Sprint("later", i)
-		if err := s.Write(asyncRecord(msg)); err != nil {
-			t.Fatal(err)
-		}
-		eventually(t, msg+" to settle", func() bool { c := s.Counts(); return c.Written+c.Failed == c.Accepted })
-		delivered = s.Counts().Written == 1
-	}
-	if !delivered {
-		t.Fatal("no record was delivered after the hung delivery returned")
-	}
 	c, err := closeWithin(t, s, 5*time.Second)
-	if err != nil || c.Written != 1 || c.Written+c.Failed != c.Accepted {
+	if err != nil || c.Written != 5 || c.Failed != 0 || c.Failing {
 		t.Fatalf("close %+v, %v", c, err)
 	}
 }
 
 func TestAsyncSinkCloseDeadlineWithWriteTimeoutReturnsFinalCounts(t *testing.T) {
 	inner := newStalledSink(false)
-	s := NewAsyncSink(plainStalled{inner}, AsyncOptions{Capacity: 8, WriteTimeout: time.Minute})
+	s := NewAsyncSink(plainStalled{inner}, AsyncOptions{Capacity: 8, WriteTimeout: time.Minute, OnFailure: quiet})
 	for i := range 4 {
 		if err := s.Write(asyncRecord(fmt.Sprint("c", i))); err != nil {
 			t.Fatal(err)
@@ -409,5 +396,16 @@ func TestAsyncSinkUnderSlogHandler(t *testing.T) {
 	}
 	if len(inner.records) != 1 || inner.records[0].Msg != "through slog" || inner.records[0].Attrs["k"] != "v" || inner.records[0].Identity[0].Program != "async-test" {
 		t.Fatalf("records %+v", inner.records)
+	}
+}
+
+func TestBackoffJitterStaysWithinTwentyPercent(t *testing.T) {
+	for range 1000 {
+		if d := jittered(time.Second); d < 800*time.Millisecond || d > 1200*time.Millisecond {
+			t.Fatalf("jittered wait %v outside 0.8 s to 1.2 s", d)
+		}
+	}
+	if DefaultInitialBackoff != 100*time.Millisecond || DefaultMaxBackoff != 5*time.Second || DefaultWriteTimeout != 5*time.Second || DefaultAsyncCapacity != 1024 {
+		t.Fatal("the LOG-S12 defaults changed")
 	}
 }

@@ -1,9 +1,11 @@
 # abstraction-logging
 
-Applications send structured events through a resolved local service. The service
-owns the sink and retained history. Generated protocols and the shared IPC
-transport support independently adopted clients; applications do not open the
-service's log files.
+Send structured application events to one local service and inspect bounded
+history later. The service chooses the destination, attributes the caller and
+keeps retained records. Applications never need the service's log-file path.
+
+Go, C++, Python, Rust and JavaScript clients use the same event and history
+contracts through the shared local transport.
 
 ## Application clients
 
@@ -12,6 +14,24 @@ and retains one verified installed-runtime binding. Missing installation or
 service refusal is returned by `Handler.Handle`; standard `slog` calls discard
 handler errors, so applications needing explicit delivery diagnostics should use
 the resolved client's error-returning methods.
+
+```go
+package main
+
+import (
+    "log/slog"
+
+    logging "github.com/openabstractions/abstraction-logging/go"
+)
+
+func main() {
+    slog.SetDefault(slog.New(logging.Default("my-app")))
+    slog.Info("worker started", "component", "indexer")
+}
+```
+
+`Default` resolves the installed runtime on first use and retains the verified
+binding. It never selects a private file or stderr sink after a service failure.
 
 Use the [facade](https://github.com/openabstractions/abstraction-facade) for resolved
 Go, C++, Python, Rust or JavaScript client entrypoints and their package/trust
@@ -56,7 +76,17 @@ records are read by the service-owned history provider.
 
 The Go host supplies the provider; C++/Python/Rust/JavaScript client availability
 is distinct from a native provider implementation in those languages. Consult
-[coverage](https://github.com/openabstractions/abstractions)
+[coverage](https://openabstractions.org/coverage.html)
 and release-specific evidence for tested scopes and platforms.
+
+## Current limits
+
+- A successful sink call confirms bounded local submission. It is not a durable
+  persistence receipt.
+- Standard `slog` discards handler errors. Use the resolved client directly when
+  the application must react to delivery failure.
+- macOS protected IPC calls currently lack Program proof and fail closed.
+- Source support does not establish that each language package has been
+  published or independently qualified at the selected revision.
 
 [Apache-2.0](LICENSE)

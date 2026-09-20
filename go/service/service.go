@@ -107,21 +107,18 @@ func (h *Host) Serve(ctx context.Context) error {
 				var name string
 				name, err = wire.ServiceName(call.Frame)
 				if err == nil {
-					if name == "abstraction.logging/reader@1" {
-						dispatcher := wire.HistoryReaderDispatcher{Handler: handler}
+					switch name {
+					case "abstraction.logging/reader@1", "abstraction.logging/observer@1", wire.EndpointContract:
 						var reply []byte
-						reply, err = dispatcher.ExchangeFrame(call.Frame)
+						reply, err = wire.ServeEndpoint(call.Frame, "openabstractions", "",
+							&wire.SinkDispatcher{Handler: handler},
+							&wire.HistoryReaderDispatcher{Handler: handler},
+							&wire.HistoryObserverDispatcher{Handler: handler})
 						if err == nil {
 							err = call.Reply(reply)
 						}
-					} else if name == "abstraction.logging/observer@1" {
-						dispatcher := wire.HistoryObserverDispatcher{Handler: handler}
-						reply, dispatchErr := dispatcher.ExchangeFrame(call.Frame)
-						err = dispatchErr
-						if err == nil {
-							err = call.Reply(reply)
-						}
-					} else {
+					default:
+						// A sink write is one-way: no reply, including for an unknown service.
 						dispatch := wire.SinkDispatcher{Handler: handler}
 						err = dispatch.WriteFrame(call.Frame)
 					}
@@ -270,7 +267,7 @@ func (r *receiver) Observe(cursor string, maxRecords, maxBytes, waitMS int64) (w
 	if err := r.authorizeHistory(); err != nil {
 		return wire.Page{}, err
 	}
-	refusal := func(outcome string) (wire.Page, error) {
+	refusal := func(outcome wire.PageOutcome) (wire.Page, error) {
 		return wire.Page{Outcome: outcome, Records: []wire.Record{}, Next: cursor}, nil
 	}
 	if maxRecords < 1 || maxRecords > 256 || maxBytes < 1 || maxBytes > 65536 || waitMS < 0 || waitMS > 30000 {

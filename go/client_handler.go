@@ -3,6 +3,7 @@ package logging
 import (
 	"context"
 	"log/slog"
+	"sync"
 
 	"github.com/openabstractions/abstraction-facade/go-core/bootstrap"
 	"github.com/openabstractions/abstraction-identity/listen"
@@ -25,6 +26,40 @@ func NewClientHandler(c *client.Client, opts *Options) *Handler {
 	return NewHandler(NewClientSink(c), opts)
 }
 
+// NewRebindingClientSink adapts a resolved logging client to Sink and rebinds
+// through resolve, for example a facade Machine's ResolveLog under the caller's
+// own trust. Under an AsyncSink, a failed delivery calls resolve again before
+// each retry [LOG-S12]; a failed resolve leaves the previous client in place.
+func NewRebindingClientSink(bound *client.Client, resolve func(context.Context) (*client.Client, error)) Sink {
+	return &rebindingClientSink{bound: bound, resolve: resolve}
+}
+
+type rebindingClientSink struct {
+	mu      sync.Mutex
+	bound   *client.Client
+	resolve func(context.Context) (*client.Client, error)
+}
+
+func (s *rebindingClientSink) Write(r Record) error { return s.WriteContext(context.Background(), r) }
+
+func (s *rebindingClientSink) WriteContext(ctx context.Context, r Record) error {
+	s.mu.Lock()
+	bound := s.bound
+	s.mu.Unlock()
+	return clientSink{client: bound}.WriteContext(ctx, r)
+}
+
+func (s *rebindingClientSink) Rebind(ctx context.Context) error {
+	c, err := s.resolve(ctx)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.bound = c
+	s.mu.Unlock()
+	return nil
+}
+
 func (s clientSink) Write(r Record) error { return s.WriteContext(context.Background(), r) }
 
 func (s clientSink) WriteContext(ctx context.Context, r Record) error {
@@ -43,23 +78,26 @@ func (s clientSink) WriteContext(ctx context.Context, r Record) error {
 // now, returning a handler bound to that service. It is the eager form of the
 // handler Default returns, for a program that reports at startup whether its
 // logging was adopted. A selection, trust or resolution failure is returned;
-// a *ResolutionError carries the resolver's typed status. Default is unchanged.
+// a *ResolutionError carries the resolver's typed status. Once bound, records
+// are delivered as Default delivers them [LOG-S12].
 func Resolve(ctx context.Context, program string) (*Handler, error) {
-	sink := newResolvedSink()
-	if _, err := sink.binding(ctx); err != nil {
+	handler := newAdoptedHandler(newResolvedSink(), &Options{Program: program})
+	if err := handler.Check(ctx); err != nil {
 		return nil, err
 	}
-	return NewHandler(sink, &Options{Program: program}), nil
+	return handler, nil
 }
 
-// ResolveVerified is Resolve with an explicit resolver endpoint and independent
-// server trust, the eager form of NewResolvedHandler.
+// ResolveVerified resolves through the resolver at an explicit endpoint with
+// independent server trust, the eager form of NewResolvedHandler. It never
+// selects the installed runtime, and its resolution errors name "the explicit
+// endpoint <endpoint>".
 func ResolveVerified(ctx context.Context, program, endpoint string, server listen.ServerExpectation) (*Handler, error) {
-	sink := resolvedSinkFor(endpoint, server)
-	if _, err := sink.binding(ctx); err != nil {
+	handler := newAdoptedHandler(resolvedSinkFor(endpoint, server), &Options{Program: program})
+	if err := handler.Check(ctx); err != nil {
 		return nil, err
 	}
-	return NewHandler(sink, &Options{Program: program}), nil
+	return handler, nil
 }
 
 // Check resolves a handler whose service binding is selected lazily (Default,
@@ -67,8 +105,12 @@ func ResolveVerified(ctx context.Context, program, endpoint string, server liste
 // other sink has nothing to resolve and returns nil. A successful binding is kept
 // for later records.
 func (h *Handler) Check(ctx context.Context) error {
-	if sink, ok := h.sink.(*resolvedSink); ok {
-		_, err := sink.binding(ctx)
+	if sink, ok := h.sink.(*adoptedSink); ok {
+		if sink.async() != nil {
+			_, err := sink.resolved.binding(ctx)
+			return err
+		}
+		_, err := sink.bind(ctx)
 		return err
 	}
 	return nil
@@ -80,6 +122,7 @@ func resolvedSinkFor(endpoint string, server listen.ServerExpectation) *resolved
 		server.Process = &process
 	}
 	sink := newResolvedSink()
+	sink.explicit = true
 	sink.selectInstalled = func(context.Context) (bootstrap.Selection, error) {
 		return bootstrap.Selection{Endpoint: endpoint, Server: server}, nil
 	}

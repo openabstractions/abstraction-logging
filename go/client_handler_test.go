@@ -156,12 +156,36 @@ func TestResolveVerifiedReportsTypedRefusal(t *testing.T) {
 	defer cancel()
 	handler, err := logging.ResolveVerified(ctx, "refused", resolver, thisProgram(t))
 	var refusal *logging.ResolutionError
-	if handler != nil || !errors.As(err, &refusal) || refusal.Status != facade.ResolutionStatusNotReady {
+	if handler != nil || !errors.As(err, &refusal) || string(refusal.Status) != facade.ResolutionStatusNotReady.String() {
 		t.Fatalf("handler %v, error %v", handler, err)
 	}
 	lazy := logging.NewResolvedHandler("refused", resolver, thisProgram(t)).(*logging.Handler)
-	if err := lazy.Check(ctx); !errors.As(err, &refusal) || refusal.Status != facade.ResolutionStatusNotReady {
+	if err := lazy.Check(ctx); !errors.As(err, &refusal) || string(refusal.Status) != facade.ResolutionStatusNotReady.String() {
 		t.Fatalf("check on a lazy handler: %v", err)
+	}
+}
+
+// VISION.md 2026-09-16: an adopted capability with no runtime fails with the
+// facade's resolution error, visibly [LOG-S11]. Over the real transport, a
+// resolver endpoint nobody listens on gives no handler and runtime_unavailable.
+func TestResolveVerifiedWithNoRuntimeIsTheResolutionError(t *testing.T) {
+	nobody := listen.Endpoint(fmt.Sprintf("lnobody-%d", os.Getpid()))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	handler, err := logging.ResolveVerified(ctx, "absent", nobody, thisProgram(t))
+	var refused *logging.ResolutionError
+	if handler != nil || !errors.As(err, &refused) {
+		t.Fatalf("handler %v, error %T %v; want no handler and *ResolutionError", handler, err, err)
+	}
+	if refused.Status != resolution.RuntimeUnavailable || refused.Contract != "abstraction.logging/sink@1" ||
+		refused.LookedFor != "the explicit endpoint "+nobody || strings.Contains(err.Error(), "installed runtime") {
+		t.Fatalf("resolution error %+v: %v", refused, err)
+	}
+	lazy := logging.NewResolvedHandler("absent", nobody, thisProgram(t))
+	if err := lazy.Handle(ctx, slog.NewRecord(time.Now(), slog.LevelInfo, "lost", 0)); !errors.As(err, &refused) ||
+		refused.Status != resolution.RuntimeUnavailable || refused.LookedFor != "the explicit endpoint "+nobody ||
+		!strings.Contains(err.Error(), " at the explicit endpoint "+nobody) {
+		t.Fatalf("a record through the lazy handler with no runtime: %v", err)
 	}
 }
 

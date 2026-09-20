@@ -12,7 +12,7 @@ import (
 func TestCheckReportsTheSelectionError(t *testing.T) {
 	handler := Default("check-test").(*Handler)
 	calls := 0
-	handler.sink.(*resolvedSink).selectInstalled = func(context.Context) (bootstrap.Selection, error) {
+	handler.sink.(*adoptedSink).resolved.selectInstalled = func(context.Context) (bootstrap.Selection, error) {
 		calls++
 		return bootstrap.Selection{}, bootstrap.ErrNoTrustedInstallation
 	}

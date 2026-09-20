@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Observer binds the optional long-poll interface. Its default waiting budget is two seconds.
+// Observer binds the optional long-poll interface. It waits DefaultTimeout by default.
 type Observer struct{ transport listen.FrameClient }
 
 func NewObserver(endpoint string) *Observer {
@@ -17,7 +17,7 @@ func NewObserver(endpoint string) *Observer {
 
 // NewObserverWithTransport retains the caller's endpoint, server trust and waiting limits.
 func NewObserverWithTransport(transport listen.FrameClient) *Observer {
-	return &Observer{transport: transport.WithDefaults(2*time.Second, 1<<20)}
+	return &Observer{transport: transport.WithDefaults(DefaultTimeout, 1<<20)}
 }
 
 // WithTimeout returns a reusable independent binding. A caller context may shorten this budget.

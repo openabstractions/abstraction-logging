@@ -16,6 +16,13 @@ import (
 // ABSTRACTION_LOG_SERVICE endpoint deliberately has a different name.
 const EnvEndpoint = "ABSTRACTION_LOG_ENDPOINT"
 
+// DefaultTimeout is how long a sink, reader or observer waits for one call
+// when its transport names no timeout and the call's context no deadline. A
+// service that consults a policy, such as the runtime's rights decision on
+// history reads, answers within it. A transport timeout, WithTimeout or a
+// context deadline replaces it.
+const DefaultTimeout = 2 * time.Second
+
 type Record = wire.Record
 
 type Client struct {
@@ -39,7 +46,7 @@ func New(endpoint string) *Client {
 
 // NewWithTransport retains the caller's endpoint, server trust and waiting limits.
 func NewWithTransport(transport listen.FrameClient) *Client {
-	return &Client{transport: transport.WithDefaults(2*time.Second, 1<<20)}
+	return &Client{transport: transport.WithDefaults(DefaultTimeout, 1<<20)}
 }
 
 // Write submits a schema-defined record. Success is not a persistence receipt.
@@ -64,7 +71,7 @@ func (c *Client) Log(level int64, message string, attrs map[string]string) error
 func (c *Client) LogContext(ctx context.Context, level int64, message string, attrs map[string]string) error {
 	return c.WriteContext(ctx, Record{Schema: 1, Time: time.Now().UTC().Format("2006-01-02T15:04:05.000000Z"),
 		Level: level, Msg: message, Attrs: attrs,
-		Identity: []wire.Attestation{{By: "self", Uid: -1, Gid: -1, Pid: -1}}})
+		Identity: []wire.Attestation{{By: "self", UID: -1, GID: -1, PID: -1}}})
 }
 
 // Reader binds only the generated history interface.
@@ -76,7 +83,7 @@ func NewReader(endpoint string) *Reader {
 
 // NewReaderWithTransport retains the caller's endpoint, server trust and waiting limits.
 func NewReaderWithTransport(transport listen.FrameClient) *Reader {
-	return &Reader{transport: transport.WithDefaults(2*time.Second, 1<<20)}
+	return &Reader{transport: transport.WithDefaults(DefaultTimeout, 1<<20)}
 }
 
 // ReadContext returns bounded retained history with opaque continuation state.

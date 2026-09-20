@@ -187,3 +187,61 @@ func TestObservationExpiryRereadsWithoutNotification(t *testing.T) {
 		t.Fatal("expiry blocked")
 	}
 }
+
+// The cursor word end begins at the current end of retained history: a read
+// returns no records and the continuation there, an observation returns only
+// the records appended after it began, and a refusal keeps the word.
+func TestHistoryEndCursorBeginsAtTheCurrentEnd(t *testing.T) {
+	end := wire.HistoryCursorWords[0]
+	if len(wire.HistoryCursorWords) != 1 || end != EndCursor {
+		t.Fatalf("cursor words %q, EndCursor %q", wire.HistoryCursorWords, EndCursor)
+	}
+	s, e := OpenFileSink(filepath.Join(t.TempDir(), "history"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer s.Close()
+	write := func(msg string) {
+		t.Helper()
+		if err := s.Write(Record{Schema: 1, Time: Timestamp{Time: time.Now().UTC()}, Msg: msg}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	empty, e := s.Read(end, 1, 1)
+	if e != nil || empty.Outcome != wire.PageOutcomePage || len(empty.Records) != 0 || !empty.AtEnd || empty.Next == "" || empty.Next == end {
+		t.Fatalf("end of empty history: %+v %v", empty, e)
+	}
+	write("old-1")
+	write("old-2")
+	p, e := s.Read(end, 256, 65536)
+	if e != nil || p.Outcome != wire.PageOutcomePage || len(p.Records) != 0 || !p.AtEnd || p.Next == end {
+		t.Fatalf("read at end: %+v %v", p, e)
+	}
+	write("new-1")
+	next, _ := s.Read(p.Next, 256, 65536)
+	if len(next.Records) != 1 || next.Records[0].Msg != "new-1" {
+		t.Fatalf("after the end continuation: %+v", next)
+	}
+	result := make(chan wire.Page, 1)
+	go func() { p, _ := s.ObserveContext(context.Background(), end, 256, 65536, 5000); result <- p }()
+	waitObservers(t, s, 1)
+	write("new-2")
+	select {
+	case observed := <-result:
+		if observed.Outcome != wire.PageOutcomePage || len(observed.Records) != 1 || observed.Records[0].Msg != "new-2" || observed.Next == end {
+			t.Fatalf("observe from end: %+v", observed)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("observation from end was not notified")
+	}
+	expired, _ := s.ObserveContext(context.Background(), end, 256, 65536, 10)
+	if expired.Outcome != wire.PageOutcomePage || len(expired.Records) != 0 || !expired.AtEnd || expired.Next == end {
+		t.Fatalf("expired observation from end: %+v", expired)
+	}
+	for _, limits := range [][2]int64{{0, 1}, {1, 0}} {
+		refused, _ := s.Read(end, limits[0], limits[1])
+		if refused.Outcome != wire.PageOutcomeInvalidRequest || refused.Next != end || refused.AtEnd {
+			t.Fatalf("refusal with end: %+v", refused)
+		}
+	}
+}

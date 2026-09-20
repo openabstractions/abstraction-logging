@@ -35,7 +35,7 @@ func TestUnclaimedFixtureIsWhatTheServiceWrites(t *testing.T) {
 		t.Fatalf("generated reader chain %+v", generated.Identity)
 	}
 	first, second := generated.Identity[0], generated.Identity[1]
-	if first.By != ByUnclaimed || first.Verified || first.Hop != 0 || first.Uid != -1 || first.Gid != -1 || first.Pid != -1 || first.Program != "" || first.Exe != "" {
+	if first.By != ByUnclaimed || first.Verified || first.Hop != 0 || first.UID != -1 || first.GID != -1 || first.PID != -1 || first.Program != "" || first.Exe != "" {
 		t.Fatalf("generated reader hop 0 %+v", first)
 	}
 	if second.By != "identity/windows" || !second.Verified || second.Hop != 1 || second.Exe != stamp.Exe {

@@ -34,6 +34,30 @@ For a dependency on logging alone, use
 construct `abstraction::logging::Logger`. Both routes use the same generated
 `SinkClient` protocol and shared `abstraction::ipc` transport.
 
+## Keep logging while the runtime restarts
+
+`Logger::write` is synchronous and reports each failure by exception. An
+application that logs from its working threads keeps an `AsyncHandler`
+(`<abstraction/logging/async_handler.hpp>`, contract `LOG-S12` and `LOG-S13`):
+
+```cpp
+#include <abstraction/facade/client.hpp>
+#include <abstraction/logging/async_handler.hpp>
+
+auto machine = abstraction::facade::discover();
+abstraction::logging::AsyncOptions options;
+options.program = "worker";
+auto events = abstraction::logging::make_async_handler(
+    machine.resolve_log({}, "local"), [machine] { return machine.resolve_log({}, "local"); }, options);
+events->log(0, "worker started", {{"component", "worker"}});
+```
+
+`log` and `write` queue and return at once. The handler retries a failed
+delivery with backoff, resolves again before each retry, drops the newest record
+when its 1024-record queue is full, and delivers a gap record on recovery.
+`counts()` reports the loss, and with no callbacks each transition is one line on
+`std::cerr`. `close(timeout)` drains the queue.
+
 ## Run the host
 
 Use an installed runtime and check `openabstractions start` followed by

@@ -15,6 +15,122 @@ namespace abstraction::logging {
 
 using Raw = std::string;
 
+class Refusal : public std::runtime_error {
+public:
+    Refusal(const char* word, std::size_t offset)
+        : std::runtime_error(std::string("refused: ") + word + " at byte " + std::to_string(offset)),
+          word(word),
+          offset(offset) {}
+    const char* word;
+    std::size_t offset;
+};
+
+enum class PageOutcome : std::int32_t {
+    Page = 1,
+    Gap = 2,
+    Unavailable = 3,
+    InvalidRequest = 4,
+    RecordTooLarge = 5,
+    Corrupt = 6,
+    Unsupported = 7,
+};
+
+// The member's name on the wire; empty for a value that names no member.
+inline constexpr std::string_view wire_name(PageOutcome value) {
+    switch (value) {
+        case PageOutcome::Page: return "page";
+        case PageOutcome::Gap: return "gap";
+        case PageOutcome::Unavailable: return "unavailable";
+        case PageOutcome::InvalidRequest: return "invalid_request";
+        case PageOutcome::RecordTooLarge: return "record_too_large";
+        case PageOutcome::Corrupt: return "corrupt";
+        case PageOutcome::Unsupported: return "unsupported";
+    }
+    return {};
+}
+
+// The member a wire name spells; empty for a name this vocabulary refuses.
+inline std::optional<PageOutcome> parse_page_outcome(std::string_view name) {
+    if (name == "page") return PageOutcome::Page;
+    if (name == "gap") return PageOutcome::Gap;
+    if (name == "unavailable") return PageOutcome::Unavailable;
+    if (name == "invalid_request") return PageOutcome::InvalidRequest;
+    if (name == "record_too_large") return PageOutcome::RecordTooLarge;
+    if (name == "corrupt") return PageOutcome::Corrupt;
+    if (name == "unsupported") return PageOutcome::Unsupported;
+    return std::nullopt;
+}
+
+// A member equals its wire name, so code holding the contract's word compares directly.
+inline constexpr bool operator==(PageOutcome value, std::string_view name) { return wire_name(value) == name; }
+inline constexpr bool operator!=(PageOutcome value, std::string_view name) { return wire_name(value) != name; }
+inline constexpr bool operator==(std::string_view name, PageOutcome value) { return wire_name(value) == name; }
+inline constexpr bool operator!=(std::string_view name, PageOutcome value) { return wire_name(value) != name; }
+
+inline const std::vector<std::string> kPageOutcomeNames = {"page", "gap", "unavailable", "invalid_request", "record_too_large", "corrupt", "unsupported"};
+
+inline const std::vector<std::string> kServiceErrorCodeNames = {"handler_error", "invalid_result", "unknown_version", "unknown_service", "unknown_method", "wrong_mode", "caller_unavailable", "identity_required", "wrong_user", "policy_unavailable", "forbidden"};
+inline constexpr std::string_view kServiceErrorCodeHandlerError = "handler_error";
+inline constexpr std::string_view kServiceErrorCodeInvalidResult = "invalid_result";
+inline constexpr std::string_view kServiceErrorCodeUnknownVersion = "unknown_version";
+inline constexpr std::string_view kServiceErrorCodeUnknownService = "unknown_service";
+inline constexpr std::string_view kServiceErrorCodeUnknownMethod = "unknown_method";
+inline constexpr std::string_view kServiceErrorCodeWrongMode = "wrong_mode";
+inline constexpr std::string_view kServiceErrorCodeCallerUnavailable = "caller_unavailable";
+inline constexpr std::string_view kServiceErrorCodeIdentityRequired = "identity_required";
+inline constexpr std::string_view kServiceErrorCodeWrongUser = "wrong_user";
+inline constexpr std::string_view kServiceErrorCodePolicyUnavailable = "policy_unavailable";
+inline constexpr std::string_view kServiceErrorCodeForbidden = "forbidden";
+
+inline const std::vector<std::string> kHistoryErrorCodes = {"caller_unavailable", "identity_required", "wrong_user", "policy_unavailable", "forbidden"};
+
+inline const std::vector<std::string> kHistoryCursorWords = {"end"};
+
+// One hop of the provenance chain. program is the name a party gives itself and
+// appears on the writer's self claim. exe is the executable path the attesting
+// mechanism resolved for the party it established; a receiving service's stamp
+// sets exe and leaves program empty. user is the account name or Windows SID;
+// uid and gid are -1 where unestablished.
+struct Attestation {
+    std::string by;
+    bool verified = false;
+    std::int64_t hop = 0;
+    std::string program;
+    std::string host;
+    std::string user;
+    std::string exe;
+    std::int64_t uid = 0;
+    std::int64_t gid = 0;
+    std::int64_t pid = 0;
+    std::string key;
+    std::string mac;
+};
+
+struct Record {
+    std::int64_t schema = 0;
+    std::string time;
+    std::int64_t level = 0;
+    std::string msg;
+    std::vector<Attestation> identity;
+    std::string job;
+    std::map<std::string, std::string> attrs;
+};
+
+// A bounded page in provider append order. next is an opaque continuation bound
+// to this history instance. at_end means the observed end during this call;
+// later records may appear. Refusals contain no records and never advance a
+// supplied cursor. gap requires an explicit restart with empty cursor; it never
+// silently restarts a stream.
+struct Page {
+    PageOutcome outcome{};
+    std::vector<Record> records;
+    std::string next;
+    bool at_end = false;
+};
+
+// Codec machinery. Nothing here is API; it may change in any release.
+namespace detail {
+
 inline void esc(std::string& out, const std::string& s);
 
 inline void esc_byte(std::string& out, unsigned char c) {
@@ -56,6 +172,8 @@ inline void strs(std::string& out, const std::vector<std::string>& v, int depth)
     pad(out, depth);
     out += ']';
 }
+
+
 
 inline bool ws(unsigned char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
 
@@ -132,16 +250,6 @@ inline void esc(std::string& out, const std::string& s) {
     out += '"';
 }
 
-class Refusal : public std::runtime_error {
-public:
-    Refusal(const char* word, std::size_t offset)
-        : std::runtime_error(std::string("refused: ") + word + " at byte " + std::to_string(offset)),
-          word(word),
-          offset(offset) {}
-    const char* word;
-    std::size_t offset;
-};
-
 inline bool wide_timestamp(std::string_view);
 inline std::string normalized_timestamp(std::string_view);
 inline std::string write_timestamp(std::string_view);
@@ -176,51 +284,6 @@ inline void enc_list(std::string& out, const std::vector<T>& v, int depth,
     pad(out, depth);
     out += ']';
 }
-
-inline const std::vector<std::string> kPageOutcomeNames = {"page", "gap", "unavailable", "invalid_request", "record_too_large", "corrupt", "unsupported"};
-inline const std::string kPageOutcomeUnknown = "refuse";
-
-// One hop of the provenance chain. program is the name a party gives itself and
-// appears on the writer's self claim. exe is the executable path the attesting
-// mechanism resolved for the party it established; a receiving service's stamp
-// sets exe and leaves program empty. user is the account name or Windows SID;
-// uid and gid are -1 where unestablished.
-struct Attestation {
-    std::string by;
-    bool verified = false;
-    std::int64_t hop = 0;
-    std::string program;
-    std::string host;
-    std::string user;
-    std::string exe;
-    std::int64_t uid = 0;
-    std::int64_t gid = 0;
-    std::int64_t pid = 0;
-    std::string key;
-    std::string mac;
-};
-
-struct Record {
-    std::int64_t schema = 0;
-    std::string time;
-    std::int64_t level = 0;
-    std::string msg;
-    std::vector<Attestation> identity;
-    std::string job;
-    std::map<std::string, std::string> attrs;
-};
-
-// A bounded page in provider append order. next is an opaque continuation bound
-// to this history instance. at_end means the observed end during this call;
-// later records may appear. Refusals contain no records and never advance a
-// supplied cursor. gap requires an explicit restart with empty cursor; it never
-// silently restarts a stream.
-struct Page {
-    std::string outcome;
-    std::vector<Record> records;
-    std::string next;
-    bool at_end = false;
-};
 
 struct OASinkWriteArguments {
     Record record;
@@ -266,6 +329,17 @@ struct OAHistoryReaderReadResult {
 struct OAHistoryObserverObserveResult {
     Page value;
 };
+inline void enc_attestation(std::string&, const Attestation&, int);
+inline void enc_record(std::string&, const Record&, int);
+inline void enc_page(std::string&, const Page&, int);
+inline void enc_oa_sink_write_arguments(std::string&, const OASinkWriteArguments&, int);
+inline void enc_oa_history_reader_read_arguments(std::string&, const OAHistoryReaderReadArguments&, int);
+inline void enc_oa_history_observer_observe_arguments(std::string&, const OAHistoryObserverObserveArguments&, int);
+inline void enc_oa_service_frame(std::string&, const OAServiceFrame&, int);
+inline void enc_oa_service_reply(std::string&, const OAServiceReply&, int);
+inline void enc_oa_service_error(std::string&, const OAServiceError&, int);
+inline void enc_oa_history_reader_read_result(std::string&, const OAHistoryReaderReadResult&, int);
+inline void enc_oa_history_observer_observe_result(std::string&, const OAHistoryObserverObserveResult&, int);
 
 inline void enc_attestation(std::string& out, const Attestation& v, int depth) {
     out += '{';
@@ -413,13 +487,13 @@ inline void enc_record(std::string& out, const Record& v, int depth) {
 }
 
 inline void enc_page(std::string& out, const Page& v, int depth) {
-    if (v.outcome != "page" && v.outcome != "gap" && v.outcome != "unavailable" && v.outcome != "invalid_request" && v.outcome != "record_too_large" && v.outcome != "corrupt" && v.outcome != "unsupported") { throw Refusal("bad_enum",0); }
+    if (wire_name(v.outcome).empty()) throw Refusal("bad_enum", 0);
     out += '{';
     out += '\n';
     pad(out, depth + 1);
     esc(out, "outcome");
     out += ": ";
-    esc(out, v.outcome);
+    esc(out, std::string(wire_name(v.outcome)));
     out += ',';
     out += '\n';
     pad(out, depth + 1);
@@ -443,7 +517,7 @@ inline void enc_page(std::string& out, const Page& v, int depth) {
     out += '}';
 }
 
-inline void enc_oasinkwritearguments(std::string& out, const OASinkWriteArguments& v, int depth) {
+inline void enc_oa_sink_write_arguments(std::string& out, const OASinkWriteArguments& v, int depth) {
     out += '{';
     out += '\n';
     pad(out, depth + 1);
@@ -455,7 +529,7 @@ inline void enc_oasinkwritearguments(std::string& out, const OASinkWriteArgument
     out += '}';
 }
 
-inline void enc_oahistoryreaderreadarguments(std::string& out, const OAHistoryReaderReadArguments& v, int depth) {
+inline void enc_oa_history_reader_read_arguments(std::string& out, const OAHistoryReaderReadArguments& v, int depth) {
     out += '{';
     out += '\n';
     pad(out, depth + 1);
@@ -479,7 +553,7 @@ inline void enc_oahistoryreaderreadarguments(std::string& out, const OAHistoryRe
     out += '}';
 }
 
-inline void enc_oahistoryobserverobservearguments(std::string& out, const OAHistoryObserverObserveArguments& v, int depth) {
+inline void enc_oa_history_observer_observe_arguments(std::string& out, const OAHistoryObserverObserveArguments& v, int depth) {
     out += '{';
     out += '\n';
     pad(out, depth + 1);
@@ -509,7 +583,7 @@ inline void enc_oahistoryobserverobservearguments(std::string& out, const OAHist
     out += '}';
 }
 
-inline void enc_oaserviceframe(std::string& out, const OAServiceFrame& v, int depth) {
+inline void enc_oa_service_frame(std::string& out, const OAServiceFrame& v, int depth) {
     out += '{';
     out += '\n';
     pad(out, depth + 1);
@@ -539,7 +613,7 @@ inline void enc_oaserviceframe(std::string& out, const OAServiceFrame& v, int de
     out += '}';
 }
 
-inline void enc_oaservicereply(std::string& out, const OAServiceReply& v, int depth) {
+inline void enc_oa_service_reply(std::string& out, const OAServiceReply& v, int depth) {
     out += '{';
     out += '\n';
     pad(out, depth + 1);
@@ -575,7 +649,7 @@ inline void enc_oaservicereply(std::string& out, const OAServiceReply& v, int de
     out += '}';
 }
 
-inline void enc_oaserviceerror(std::string& out, const OAServiceError& v, int depth) {
+inline void enc_oa_service_error(std::string& out, const OAServiceError& v, int depth) {
     out += '{';
     out += '\n';
     pad(out, depth + 1);
@@ -593,7 +667,7 @@ inline void enc_oaserviceerror(std::string& out, const OAServiceError& v, int de
     out += '}';
 }
 
-inline void enc_oahistoryreaderreadresult(std::string& out, const OAHistoryReaderReadResult& v, int depth) {
+inline void enc_oa_history_reader_read_result(std::string& out, const OAHistoryReaderReadResult& v, int depth) {
     out += '{';
     out += '\n';
     pad(out, depth + 1);
@@ -605,7 +679,7 @@ inline void enc_oahistoryreaderreadresult(std::string& out, const OAHistoryReade
     out += '}';
 }
 
-inline void enc_oahistoryobserverobserveresult(std::string& out, const OAHistoryObserverObserveResult& v, int depth) {
+inline void enc_oa_history_observer_observe_result(std::string& out, const OAHistoryObserverObserveResult& v, int depth) {
     out += '{';
     out += '\n';
     pad(out, depth + 1);
@@ -615,19 +689,10 @@ inline void enc_oahistoryobserverobserveresult(std::string& out, const OAHistory
     out += '\n';
     pad(out, depth);
     out += '}';
-}
-
-inline std::string encode(const Record& v) {
-    std::string out;
-    enc_record(out, v, 0);
-    out += '\n';
-    return out;
 }
 
 inline constexpr int kDepthLimit = 64;
 inline constexpr std::size_t kI64Digits = 19;
-
-
 
 inline void append_rune(std::string& out, std::uint32_t cp) {
     if (cp < 0x80) {
@@ -1054,14 +1119,14 @@ inline std::string write_timestamp(std::string_view s) {
 inline Attestation decode_attestation(Reader& r);
 inline Record decode_record(Reader& r);
 inline Page decode_page(Reader& r);
-inline OASinkWriteArguments decode_oasinkwritearguments(Reader& r);
-inline OAHistoryReaderReadArguments decode_oahistoryreaderreadarguments(Reader& r);
-inline OAHistoryObserverObserveArguments decode_oahistoryobserverobservearguments(Reader& r);
-inline OAServiceFrame decode_oaserviceframe(Reader& r);
-inline OAServiceReply decode_oaservicereply(Reader& r);
-inline OAServiceError decode_oaserviceerror(Reader& r);
-inline OAHistoryReaderReadResult decode_oahistoryreaderreadresult(Reader& r);
-inline OAHistoryObserverObserveResult decode_oahistoryobserverobserveresult(Reader& r);
+inline OASinkWriteArguments decode_oa_sink_write_arguments(Reader& r);
+inline OAHistoryReaderReadArguments decode_oa_history_reader_read_arguments(Reader& r);
+inline OAHistoryObserverObserveArguments decode_oa_history_observer_observe_arguments(Reader& r);
+inline OAServiceFrame decode_oa_service_frame(Reader& r);
+inline OAServiceReply decode_oa_service_reply(Reader& r);
+inline OAServiceError decode_oa_service_error(Reader& r);
+inline OAHistoryReaderReadResult decode_oa_history_reader_read_result(Reader& r);
+inline OAHistoryObserverObserveResult decode_oa_history_observer_observe_result(Reader& r);
 
 inline Attestation decode_attestation(Reader& r) {
     if (r.at() != '{') r.refuse("wrong_type");
@@ -1207,6 +1272,7 @@ inline Page decode_page(Reader& r) {
     r.enter();
     ++r.pos;
     Page v;
+    std::optional<std::string> wire_outcome;
     std::uint32_t seen = 0;
     r.skip_ws();
     if (r.at() != '}') {
@@ -1221,7 +1287,7 @@ inline Page decode_page(Reader& r) {
             if (key == "outcome") {
                 if (seen & 1u) r.refuse("duplicate_field");
                 seen |= 1u;
-                v.outcome = r.str();
+                wire_outcome = r.str();
             } else if (key == "records") {
                 if (seen & 2u) r.refuse("duplicate_field");
                 seen |= 2u;
@@ -1246,11 +1312,15 @@ inline Page decode_page(Reader& r) {
     ++r.pos;
     --r.depth;
     if ((seen & 15u) != 15u) r.refuse("missing_field");
-    if (v.outcome != "page" && v.outcome != "gap" && v.outcome != "unavailable" && v.outcome != "invalid_request" && v.outcome != "record_too_large" && v.outcome != "corrupt" && v.outcome != "unsupported") { r.refuse("bad_enum"); }
+    if (wire_outcome) {
+        const auto parsed = parse_page_outcome(*wire_outcome);
+        if (!parsed) r.refuse("bad_enum");
+        v.outcome = *parsed;
+    }
     return v;
 }
 
-inline OASinkWriteArguments decode_oasinkwritearguments(Reader& r) {
+inline OASinkWriteArguments decode_oa_sink_write_arguments(Reader& r) {
     if (r.at() != '{') r.refuse("wrong_type");
     r.enter();
     ++r.pos;
@@ -1285,7 +1355,7 @@ inline OASinkWriteArguments decode_oasinkwritearguments(Reader& r) {
     return v;
 }
 
-inline OAHistoryReaderReadArguments decode_oahistoryreaderreadarguments(Reader& r) {
+inline OAHistoryReaderReadArguments decode_oa_history_reader_read_arguments(Reader& r) {
     if (r.at() != '{') r.refuse("wrong_type");
     r.enter();
     ++r.pos;
@@ -1328,7 +1398,7 @@ inline OAHistoryReaderReadArguments decode_oahistoryreaderreadarguments(Reader& 
     return v;
 }
 
-inline OAHistoryObserverObserveArguments decode_oahistoryobserverobservearguments(Reader& r) {
+inline OAHistoryObserverObserveArguments decode_oa_history_observer_observe_arguments(Reader& r) {
     if (r.at() != '{') r.refuse("wrong_type");
     r.enter();
     ++r.pos;
@@ -1375,7 +1445,7 @@ inline OAHistoryObserverObserveArguments decode_oahistoryobserverobserveargument
     return v;
 }
 
-inline OAServiceFrame decode_oaserviceframe(Reader& r) {
+inline OAServiceFrame decode_oa_service_frame(Reader& r) {
     if (r.at() != '{') r.refuse("wrong_type");
     r.enter();
     ++r.pos;
@@ -1422,7 +1492,7 @@ inline OAServiceFrame decode_oaserviceframe(Reader& r) {
     return v;
 }
 
-inline OAServiceReply decode_oaservicereply(Reader& r) {
+inline OAServiceReply decode_oa_service_reply(Reader& r) {
     if (r.at() != '{') r.refuse("wrong_type");
     r.enter();
     ++r.pos;
@@ -1473,7 +1543,7 @@ inline OAServiceReply decode_oaservicereply(Reader& r) {
     return v;
 }
 
-inline OAServiceError decode_oaserviceerror(Reader& r) {
+inline OAServiceError decode_oa_service_error(Reader& r) {
     if (r.at() != '{') r.refuse("wrong_type");
     r.enter();
     ++r.pos;
@@ -1512,7 +1582,7 @@ inline OAServiceError decode_oaserviceerror(Reader& r) {
     return v;
 }
 
-inline OAHistoryReaderReadResult decode_oahistoryreaderreadresult(Reader& r) {
+inline OAHistoryReaderReadResult decode_oa_history_reader_read_result(Reader& r) {
     if (r.at() != '{') r.refuse("wrong_type");
     r.enter();
     ++r.pos;
@@ -1547,7 +1617,7 @@ inline OAHistoryReaderReadResult decode_oahistoryreaderreadresult(Reader& r) {
     return v;
 }
 
-inline OAHistoryObserverObserveResult decode_oahistoryobserverobserveresult(Reader& r) {
+inline OAHistoryObserverObserveResult decode_oa_history_observer_observe_result(Reader& r) {
     if (r.at() != '{') r.refuse("wrong_type");
     r.enter();
     ++r.pos;
@@ -1582,15 +1652,25 @@ inline OAHistoryObserverObserveResult decode_oahistoryobserverobserveresult(Read
     return v;
 }
 
+}  // namespace detail
+
+inline std::string encode(const Record& v) {
+    std::string out;
+    detail::enc_record(out, v, 0);
+    out += '\n';
+    return out;
+}
+
 inline Record decode(std::string_view data) {
-    Reader r{data};
+    detail::Reader r{data};
     r.skip_ws();
-    Record v = decode_record(r);
+    Record v = detail::decode_record(r);
     r.skip_ws();
     if (r.pos < r.buf.size()) r.refuse("trailing_bytes");
     return v;
 }
 
+namespace detail {
 // kRefusals is in the order two of them are chosen between.
 inline const std::vector<std::string> kRefusals = {"malformed", "bad_string", "number_spelling", "wrong_type", "bad_timestamp", "depth_exceeded", "duplicate_field", "unknown_field", "missing_field", "bad_schema", "bad_enum", "trailing_bytes"};
 
@@ -1599,114 +1679,173 @@ inline int refusal_rank(std::string_view word) {
         if (kRefusals[i] == word) return static_cast<int>(i);
     return -1;
 }
+}  // namespace detail
 
-struct FrameWriter{virtual ~FrameWriter()=default;virtual void WriteFrame(std::string_view)=0;};
+struct FrameWriter{virtual ~FrameWriter()=default;virtual void write_frame(std::string_view frame)=0;};
 struct DispatchError:std::runtime_error{using std::runtime_error::runtime_error;};
-inline OAServiceFrame service_payload(std::string_view frame){Reader r{frame};r.skip_ws();auto v=decode_oaserviceframe(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");if(v.version!=1)throw DispatchError("unknown_version");return v;}
+namespace detail {
+inline OAServiceFrame service_payload(std::string_view frame){Reader r{frame};r.skip_ws();auto v=decode_oa_service_frame(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");if(v.version!=1)throw DispatchError("unknown_version");return v;}
+}  // namespace detail
 // Validates the request envelope and version; dispatchers validate typed arguments.
-inline std::string service_name(std::string_view frame){return service_payload(frame).service;}
+inline std::string service_name(std::string_view frame){return detail::service_payload(frame).service;}
 
-struct FrameExchanger{virtual ~FrameExchanger()=default;virtual std::string ExchangeFrame(std::string_view)=0;};
+struct FrameExchanger{virtual ~FrameExchanger()=default;virtual std::string exchange_frame(std::string_view frame)=0;};
 struct ServiceError:std::runtime_error{std::string code,message;ServiceError(std::string c,std::string m):std::runtime_error(m.empty()?c:m),code(c),message(m){}};
+namespace detail {
 inline Raw service_response(std::string_view frame,std::string_view service,std::string_view method){
- Reader r{frame};r.skip_ws();auto v=decode_oaservicereply(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");if(v.version!=1)throw DispatchError("unknown_version");if(v.service!=service||v.method!=method)throw DispatchError("mismatched_response");
- if(!v.ok){Reader e{v.payload};e.depth=1;e.skip_ws();auto error=decode_oaserviceerror(e);e.skip_ws();if(e.pos!=e.buf.size())e.refuse("trailing_bytes");if(error.code.empty())throw DispatchError("invalid_error");throw ServiceError(error.code,error.message);}return v.payload;
+ Reader r{frame};r.skip_ws();auto v=decode_oa_service_reply(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");if(v.version!=1)throw DispatchError("unknown_version");if(v.service!=service||v.method!=method)throw DispatchError("mismatched_response");
+ if(!v.ok){Reader e{v.payload};e.depth=1;e.skip_ws();auto error=decode_oa_service_error(e);e.skip_ws();if(e.pos!=e.buf.size())e.refuse("trailing_bytes");if(error.code.empty())throw DispatchError("invalid_error");throw ServiceError(error.code,error.message);}return v.payload;
 }
 inline std::string service_reply(const OAServiceFrame& request,const Raw& payload,const ServiceError* error=nullptr){
  OAServiceReply reply;reply.version=1;reply.service=request.service;reply.method=request.method;reply.ok=error==nullptr;reply.payload=payload;
- if(error){OAServiceError e;e.code=error->code.empty()?"handler_error":error->code;e.message=error->message;reply.payload.clear();enc_oaserviceerror(reply.payload,e,1);}
- std::string frame;enc_oaservicereply(frame,reply,0);Reader r{frame};r.skip_ws();decode_oaservicereply(r);return frame;
+ if(error){OAServiceError e;e.code=error->code.empty()?"handler_error":error->code;e.message=error->message;reply.payload.clear();enc_oa_service_error(reply.payload,e,1);}
+ std::string frame;enc_oa_service_reply(frame,reply,0);Reader r{frame};r.skip_ws();decode_oa_service_reply(r);return frame;
+}
+}  // namespace detail
+
+// The base-protocol service every dispatcher answers beside its own.
+inline constexpr std::string_view kEndpointContract="abstraction.facade/endpoint@1";
+// One service an endpoint hosts, as a dispatcher of any generated namespace
+// reports it to describe_endpoint.
+struct DescribedService{std::string contract;bool ready;std::string why;};
+namespace detail {
+template<class H>auto ready_hook(int)->decltype((void)static_cast<H*>(nullptr)->ready(),static_cast<bool(*)(void*,std::string&)>(nullptr)){return [](void* h,std::string& why)->bool{auto r=static_cast<H*>(h)->ready();why=r.second;return r.first;};}
+template<class H>bool(*ready_hook(long))(void*,std::string&){return nullptr;}
+}  // namespace detail
+// Answers an abstraction.facade/endpoint@1 Describe frame for an endpoint
+// hosting services, in that order: each is a dispatcher of any generated
+// namespace. program and version are the provider's own display name and
+// version, never authority. A frame for another service reads unknown_service.
+template<class... Services>std::string describe_endpoint(std::string_view frame,const std::string& program,const std::string& version,const Services&... services){
+ auto v=detail::service_payload(frame);
+ if(v.service!=kEndpointContract){ServiceError e("unknown_service","");return detail::service_reply(v,"",&e);}
+ if(v.method!="Describe"){ServiceError e("unknown_method","");return detail::service_reply(v,"",&e);}
+ detail::Reader r{v.arguments};r.skip_ws();bool empty=false;
+ if(r.pos<r.buf.size()&&r.buf[r.pos]=='{'){r.pos++;r.skip_ws();if(r.pos<r.buf.size()&&r.buf[r.pos]=='}'){r.pos++;r.skip_ws();empty=r.pos==r.buf.size();}}
+ if(!empty){ServiceError e("unknown_field","");return detail::service_reply(v,"",&e);}
+ try{
+  Raw out="{\"value\":{\"outcome\":\"described\",\"program\":";detail::esc(out,program);out+=",\"version\":";detail::esc(out,version);out+=",\"services\":[";
+  bool first=true;
+  auto add=[&](const auto& s){if(!first)out+=',';first=false;out+="{\"contract\":";detail::esc(out,s.contract);out+=",\"readiness\":\"";out+=s.ready?"ready":"not_ready";out+="\",\"why\":";detail::esc(out,s.why);out+=",\"guarantees\":[],\"capabilities\":{}}";};
+  (void)add;
+  (add(services.describe_service()),...);
+  out+="]}}";
+  return detail::service_reply(v,out);
+ }catch(const Refusal&e){ServiceError error(e.word,"");return detail::service_reply(v,"",&error);}
 }
 struct Sink{virtual ~Sink()=default;
-virtual void Write(const Record& arg0)=0;
+virtual void write(const Record& record)=0;
 };
 template<class Transport>struct SinkClient:Sink{Transport& transport_;explicit SinkClient(Transport&t):transport_(t){}
-void Write(const Record& arg0)override{OASinkWriteArguments args;
-args.record=arg0;
-OAServiceFrame v;v.version=1;v.service="abstraction.logging/sink@1";v.method="Write";enc_oasinkwritearguments(v.arguments,args,1);std::string frame;enc_oaserviceframe(frame,v,0);service_payload(frame);
-transport_.WriteFrame(frame);}
+void write(const Record& record)override{detail::OASinkWriteArguments args;
+args.record=record;
+detail::OAServiceFrame v;v.version=1;v.service="abstraction.logging/sink@1";v.method="Write";detail::enc_oa_sink_write_arguments(v.arguments,args,1);std::string frame;detail::enc_oa_service_frame(frame,v,0);detail::service_payload(frame);
+transport_.write_frame(frame);}
 };
-struct SinkService{inline static constexpr std::string_view wire_name="abstraction.logging/sink@1";inline static constexpr std::string_view capability="abstraction.logging";template<class Transport>using Client=SinkClient<Transport>;};
+struct SinkService{inline static constexpr std::string_view kWireName="abstraction.logging/sink@1";inline static constexpr std::string_view kCapability="abstraction.logging";template<class Transport>using Client=SinkClient<Transport>;};
 struct SinkDispatcher:FrameWriter{Sink&handler;explicit SinkDispatcher(Sink&h):handler(h){}
-void WriteFrame(std::string_view frame)override{auto v=service_payload(frame);if(v.service!="abstraction.logging/sink@1")throw DispatchError("unknown_service");
+// A handler whose own type has ready(), returning a pair of bool and std::string, reports its readiness through describe_service.
+template<class H,class=decltype(static_cast<Sink&>(*static_cast<H*>(nullptr)))>explicit SinkDispatcher(H&h):handler(h),ready_self_(&h),ready_hook_(detail::ready_hook<H>(0)){}
+// This dispatcher's service as abstraction.facade/endpoint@1 Describe lists it.
+DescribedService describe_service()const{DescribedService s{"abstraction.logging/sink@1",true,std::string()};if(ready_hook_){s.ready=ready_hook_(ready_self_,s.why);if(s.ready)s.why.clear();}return s;}
+void write_frame(std::string_view frame)override{auto v=detail::service_payload(frame);if(v.service!="abstraction.logging/sink@1")throw DispatchError("unknown_service");
 if(v.method=="Write"){
-Reader r{v.arguments};r.depth=1;r.skip_ws();auto args=decode_oasinkwritearguments(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");handler.Write(args.record);return;}
+detail::Reader r{v.arguments};r.depth=1;r.skip_ws();auto args=detail::decode_oa_sink_write_arguments(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");handler.write(args.record);return;}
 throw DispatchError("unknown_method");}
+private:
+void* ready_self_=nullptr;
+bool(*ready_hook_)(void*,std::string&)=nullptr;
 };
 struct HistoryReader{virtual ~HistoryReader()=default;
-virtual Page Read(const std::string& arg0,const std::int64_t& arg1,const std::int64_t& arg2)=0;
+virtual Page read(const std::string& cursor,const std::int64_t& max_records,const std::int64_t& max_bytes)=0;
 };
 template<class Transport>struct HistoryReaderClient:HistoryReader{Transport& transport_;explicit HistoryReaderClient(Transport&t):transport_(t){}
-Page Read(const std::string& arg0,const std::int64_t& arg1,const std::int64_t& arg2)override{OAHistoryReaderReadArguments args;
-args.cursor=arg0;
-args.max_records=arg1;
-args.max_bytes=arg2;
-OAServiceFrame v;v.version=1;v.service="abstraction.logging/reader@1";v.method="Read";enc_oahistoryreaderreadarguments(v.arguments,args,1);std::string frame;enc_oaserviceframe(frame,v,0);service_payload(frame);
-auto response=transport_.ExchangeFrame(frame);auto payload=service_response(response,v.service,v.method);Reader r{payload};r.depth=1;r.skip_ws();auto result=decode_oahistoryreaderreadresult(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");
+Page read(const std::string& cursor,const std::int64_t& max_records,const std::int64_t& max_bytes)override{detail::OAHistoryReaderReadArguments args;
+args.cursor=cursor;
+args.max_records=max_records;
+args.max_bytes=max_bytes;
+detail::OAServiceFrame v;v.version=1;v.service="abstraction.logging/reader@1";v.method="Read";detail::enc_oa_history_reader_read_arguments(v.arguments,args,1);std::string frame;detail::enc_oa_service_frame(frame,v,0);detail::service_payload(frame);
+auto response=transport_.exchange_frame(frame);auto payload=detail::service_response(response,v.service,v.method);detail::Reader r{payload};r.depth=1;r.skip_ws();auto result=detail::decode_oa_history_reader_read_result(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");
 return result.value;
 }
 };
-struct HistoryReaderService{inline static constexpr std::string_view wire_name="abstraction.logging/reader@1";inline static constexpr std::string_view capability="abstraction.logging";template<class Transport>using Client=HistoryReaderClient<Transport>;};
+struct HistoryReaderService{inline static constexpr std::string_view kWireName="abstraction.logging/reader@1";inline static constexpr std::string_view kCapability="abstraction.logging";template<class Transport>using Client=HistoryReaderClient<Transport>;};
 struct HistoryReaderDispatcher:FrameWriter,FrameExchanger{HistoryReader&handler;explicit HistoryReaderDispatcher(HistoryReader&h):handler(h){}
-void WriteFrame(std::string_view frame)override{auto v=service_payload(frame);if(v.service!="abstraction.logging/reader@1")throw DispatchError("unknown_service");
+// A handler whose own type has ready(), returning a pair of bool and std::string, reports its readiness through describe_service.
+template<class H,class=decltype(static_cast<HistoryReader&>(*static_cast<H*>(nullptr)))>explicit HistoryReaderDispatcher(H&h):handler(h),ready_self_(&h),ready_hook_(detail::ready_hook<H>(0)){}
+// This dispatcher's service as abstraction.facade/endpoint@1 Describe lists it.
+DescribedService describe_service()const{DescribedService s{"abstraction.logging/reader@1",true,std::string()};if(ready_hook_){s.ready=ready_hook_(ready_self_,s.why);if(s.ready)s.why.clear();}return s;}
+void write_frame(std::string_view frame)override{auto v=detail::service_payload(frame);if(v.service!="abstraction.logging/reader@1")throw DispatchError("unknown_service");
 if(v.method=="Read"){
 throw DispatchError("wrong_mode");}
 throw DispatchError("unknown_method");}
-std::string ExchangeFrame(std::string_view frame)override{auto v=service_payload(frame);if(v.service!="abstraction.logging/reader@1"){ServiceError e("unknown_service","");return service_reply(v,"",&e);}
+std::string exchange_frame(std::string_view frame)override{auto v=detail::service_payload(frame);if(v.service==kEndpointContract)return describe_endpoint(frame,std::string(),std::string(),*this);if(v.service!="abstraction.logging/reader@1"){ServiceError e("unknown_service","");return detail::service_reply(v,"",&e);}
 try{
 if(v.method=="Read"){
-Reader r{v.arguments};r.depth=1;r.skip_ws();auto args=decode_oahistoryreaderreadarguments(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");auto payload=invoke_Read(args);return service_reply(v,payload);}
-throw ServiceError("unknown_method","");}catch(const ServiceError&e){return service_reply(v,"",&e);}catch(const Refusal&e){ServiceError error(e.word,"");return service_reply(v,"",&error);}
+detail::Reader r{v.arguments};r.depth=1;r.skip_ws();auto args=detail::decode_oa_history_reader_read_arguments(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");auto payload=invoke_read(args);return detail::service_reply(v,payload);}
+throw ServiceError("unknown_method","");}catch(const ServiceError&e){return detail::service_reply(v,"",&e);}catch(const Refusal&e){ServiceError error(e.word,"");return detail::service_reply(v,"",&error);}
 }
-Raw invoke_Read(const OAHistoryReaderReadArguments&args){
+private:
+Raw invoke_read(const detail::OAHistoryReaderReadArguments&args){
 Page result{};
 try{
-result=handler.Read(args.cursor,args.max_records,args.max_bytes);
+result=handler.read(args.cursor,args.max_records,args.max_bytes);
 }catch(const ServiceError&){throw;}catch(...){throw ServiceError("handler_error","handler failed");}
 try{
-OAHistoryReaderReadResult value;
+detail::OAHistoryReaderReadResult value;
 value.value=result;
-Raw payload;enc_oahistoryreaderreadresult(payload,value,1);Reader r{payload};r.depth=1;r.skip_ws();decode_oahistoryreaderreadresult(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");return payload;
+Raw payload;detail::enc_oa_history_reader_read_result(payload,value,1);detail::Reader r{payload};r.depth=1;r.skip_ws();detail::decode_oa_history_reader_read_result(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");return payload;
 }catch(...){throw ServiceError("invalid_result","");}
 }
+private:
+void* ready_self_=nullptr;
+bool(*ready_hook_)(void*,std::string&)=nullptr;
 };
 struct HistoryObserver{virtual ~HistoryObserver()=default;
-virtual Page Observe(const std::string& arg0,const std::int64_t& arg1,const std::int64_t& arg2,const std::int64_t& arg3)=0;
+virtual Page observe(const std::string& cursor,const std::int64_t& max_records,const std::int64_t& max_bytes,const std::int64_t& wait_ms)=0;
 };
 template<class Transport>struct HistoryObserverClient:HistoryObserver{Transport& transport_;explicit HistoryObserverClient(Transport&t):transport_(t){}
-Page Observe(const std::string& arg0,const std::int64_t& arg1,const std::int64_t& arg2,const std::int64_t& arg3)override{OAHistoryObserverObserveArguments args;
-args.cursor=arg0;
-args.max_records=arg1;
-args.max_bytes=arg2;
-args.wait_ms=arg3;
-OAServiceFrame v;v.version=1;v.service="abstraction.logging/observer@1";v.method="Observe";enc_oahistoryobserverobservearguments(v.arguments,args,1);std::string frame;enc_oaserviceframe(frame,v,0);service_payload(frame);
-auto response=transport_.ExchangeFrame(frame);auto payload=service_response(response,v.service,v.method);Reader r{payload};r.depth=1;r.skip_ws();auto result=decode_oahistoryobserverobserveresult(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");
+Page observe(const std::string& cursor,const std::int64_t& max_records,const std::int64_t& max_bytes,const std::int64_t& wait_ms)override{detail::OAHistoryObserverObserveArguments args;
+args.cursor=cursor;
+args.max_records=max_records;
+args.max_bytes=max_bytes;
+args.wait_ms=wait_ms;
+detail::OAServiceFrame v;v.version=1;v.service="abstraction.logging/observer@1";v.method="Observe";detail::enc_oa_history_observer_observe_arguments(v.arguments,args,1);std::string frame;detail::enc_oa_service_frame(frame,v,0);detail::service_payload(frame);
+auto response=transport_.exchange_frame(frame);auto payload=detail::service_response(response,v.service,v.method);detail::Reader r{payload};r.depth=1;r.skip_ws();auto result=detail::decode_oa_history_observer_observe_result(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");
 return result.value;
 }
 };
-struct HistoryObserverService{inline static constexpr std::string_view wire_name="abstraction.logging/observer@1";inline static constexpr std::string_view capability="abstraction.logging";template<class Transport>using Client=HistoryObserverClient<Transport>;};
+struct HistoryObserverService{inline static constexpr std::string_view kWireName="abstraction.logging/observer@1";inline static constexpr std::string_view kCapability="abstraction.logging";template<class Transport>using Client=HistoryObserverClient<Transport>;};
 struct HistoryObserverDispatcher:FrameWriter,FrameExchanger{HistoryObserver&handler;explicit HistoryObserverDispatcher(HistoryObserver&h):handler(h){}
-void WriteFrame(std::string_view frame)override{auto v=service_payload(frame);if(v.service!="abstraction.logging/observer@1")throw DispatchError("unknown_service");
+// A handler whose own type has ready(), returning a pair of bool and std::string, reports its readiness through describe_service.
+template<class H,class=decltype(static_cast<HistoryObserver&>(*static_cast<H*>(nullptr)))>explicit HistoryObserverDispatcher(H&h):handler(h),ready_self_(&h),ready_hook_(detail::ready_hook<H>(0)){}
+// This dispatcher's service as abstraction.facade/endpoint@1 Describe lists it.
+DescribedService describe_service()const{DescribedService s{"abstraction.logging/observer@1",true,std::string()};if(ready_hook_){s.ready=ready_hook_(ready_self_,s.why);if(s.ready)s.why.clear();}return s;}
+void write_frame(std::string_view frame)override{auto v=detail::service_payload(frame);if(v.service!="abstraction.logging/observer@1")throw DispatchError("unknown_service");
 if(v.method=="Observe"){
 throw DispatchError("wrong_mode");}
 throw DispatchError("unknown_method");}
-std::string ExchangeFrame(std::string_view frame)override{auto v=service_payload(frame);if(v.service!="abstraction.logging/observer@1"){ServiceError e("unknown_service","");return service_reply(v,"",&e);}
+std::string exchange_frame(std::string_view frame)override{auto v=detail::service_payload(frame);if(v.service==kEndpointContract)return describe_endpoint(frame,std::string(),std::string(),*this);if(v.service!="abstraction.logging/observer@1"){ServiceError e("unknown_service","");return detail::service_reply(v,"",&e);}
 try{
 if(v.method=="Observe"){
-Reader r{v.arguments};r.depth=1;r.skip_ws();auto args=decode_oahistoryobserverobservearguments(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");auto payload=invoke_Observe(args);return service_reply(v,payload);}
-throw ServiceError("unknown_method","");}catch(const ServiceError&e){return service_reply(v,"",&e);}catch(const Refusal&e){ServiceError error(e.word,"");return service_reply(v,"",&error);}
+detail::Reader r{v.arguments};r.depth=1;r.skip_ws();auto args=detail::decode_oa_history_observer_observe_arguments(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");auto payload=invoke_observe(args);return detail::service_reply(v,payload);}
+throw ServiceError("unknown_method","");}catch(const ServiceError&e){return detail::service_reply(v,"",&e);}catch(const Refusal&e){ServiceError error(e.word,"");return detail::service_reply(v,"",&error);}
 }
-Raw invoke_Observe(const OAHistoryObserverObserveArguments&args){
+private:
+Raw invoke_observe(const detail::OAHistoryObserverObserveArguments&args){
 Page result{};
 try{
-result=handler.Observe(args.cursor,args.max_records,args.max_bytes,args.wait_ms);
+result=handler.observe(args.cursor,args.max_records,args.max_bytes,args.wait_ms);
 }catch(const ServiceError&){throw;}catch(...){throw ServiceError("handler_error","handler failed");}
 try{
-OAHistoryObserverObserveResult value;
+detail::OAHistoryObserverObserveResult value;
 value.value=result;
-Raw payload;enc_oahistoryobserverobserveresult(payload,value,1);Reader r{payload};r.depth=1;r.skip_ws();decode_oahistoryobserverobserveresult(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");return payload;
+Raw payload;detail::enc_oa_history_observer_observe_result(payload,value,1);detail::Reader r{payload};r.depth=1;r.skip_ws();detail::decode_oa_history_observer_observe_result(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");return payload;
 }catch(...){throw ServiceError("invalid_result","");}
 }
+private:
+void* ready_self_=nullptr;
+bool(*ready_hook_)(void*,std::string&)=nullptr;
 };
 
 }  // namespace abstraction::logging
