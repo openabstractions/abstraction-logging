@@ -477,14 +477,17 @@ func failureClass(err error) string {
 var reportTo = func() io.Writer { return os.Stderr }
 
 func reportFailure(err error, c AsyncCounts) {
+	//unchecked: default reporter with no return value to report a write failure through
 	fmt.Fprintf(reportTo(), "abstraction.logging: service unreachable (%s); %d queued, %d dropped\n", failureClass(err), c.Queued, c.Dropped)
 }
 
 func reportOverflow(c AsyncCounts) {
+	//unchecked: default reporter with no return value to report a write failure through
 	fmt.Fprintf(reportTo(), "abstraction.logging: queue full, dropping newest records; %d queued, %d dropped\n", c.Queued, c.Dropped)
 }
 
 func reportRecovery(c AsyncCounts) {
+	//unchecked: default reporter with no return value to report a write failure through
 	fmt.Fprintf(reportTo(), "abstraction.logging: delivering again; %d dropped\n", c.Dropped)
 }
 

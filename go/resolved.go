@@ -34,8 +34,10 @@ type resolvedSink struct {
 	explicit bool
 }
 
-// NewResolvedHandler resolves abstraction.logging/sink@1 through the resolver
-// at the explicit endpoint, trusting it by server, and never selects or
+// NewResolvedHandler returns a handler that resolves abstraction.logging/sink@1
+// lazily through the explicit endpoint, trusting it by server. Handle or an
+// explicit Handler.Check triggers the first resolution.
+// Construction performs no resolution. The handler never selects or
 // activates the installed runtime. Resolution errors name "the explicit
 // endpoint <endpoint>". The selected logging binding is retained after
 // resolution. Handle exposes waiting and trust errors; slog.Logger normally

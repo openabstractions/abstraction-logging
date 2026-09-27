@@ -50,12 +50,12 @@ func Listen(endpoint string, out logging.Sink) (*Host, error) {
 	if owner.Uid == "" {
 		return nil, errors.New("logging service: owner unavailable")
 	}
-	l, err := listen.Listen(endpoint)
+	l, err := listen.ListenFramed(endpoint, listen.Program)
 	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Host{listener: l, out: out, owner: owner.Uid, ctx: ctx, cancel: cancel, calls: make(chan struct{}, 64), observers: make(chan struct{}, 32)}, nil
+	return &Host{listener: listen.Sessions(l, listen.SessionOptions{MaxSessions: 64}), out: out, owner: owner.Uid, ctx: ctx, cancel: cancel, calls: make(chan struct{}, 64), observers: make(chan struct{}, 32)}, nil
 }
 
 func (h *Host) Close() error {

@@ -10,6 +10,8 @@ host is Go.
 
 ## Through the facade
 
+Install the runtime first: https://openabstractions.org/adopt.html
+
 With development packages installed under `CMAKE_PREFIX_PATH`:
 
 ```cmake

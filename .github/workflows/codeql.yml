@@ -39,32 +39,50 @@ jobs:
         if: matrix.language == 'c-cpp'
         with:
           repository: openabstractions/abstraction-identity
+          ref: e2adfa0d160026141cdd34ef0eadd14a37d6b5f2
           path: abstraction-identity
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
         with:
           repository: openabstractions/abstraction-logging
+          ref: 3e1c87e5fe4d575b868d09248f25a563d317f3c4
           path: abstraction-logging
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
         with:
           repository: openabstractions/abstraction-config
+          ref: cd4de61288681d2df8e8fbe86817c087302a1085
           path: abstraction-config
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
         with:
           repository: openabstractions/abstraction-router
+          ref: b7919b184d0b53815228c33d442efb54891b35e3
           path: abstraction-router
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
         with:
           repository: openabstractions/abstraction-model
+          ref: 5ef09c94d9d73ad5dbb359c5c3d48f4e137d9c80
           path: abstraction-model
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
         with:
           repository: openabstractions/abstraction-job
+          ref: 47004418c8f2d9b8069553a8d0a55ec68945b2f6
           path: abstraction-job
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
+        with:
+          repository: openabstractions/abstraction-download
+          ref: b228039e8be7b3d351b63274ac9ced800ca0c5d3
+          path: abstraction-download
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
+        with:
+          repository: openabstractions/abstraction-storage
+          ref: 0745d81eb1558f16ad00f249695d0ee40e823448
+          path: abstraction-storage
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         if: matrix.language == 'go'
         with:
@@ -100,7 +118,7 @@ jobs:
           printf '#include <abstraction/%s/client.hpp>\nint main() { return 0; }\n' "$capability" > "$REPOSITORY/cpp/codeql_client.cpp"
           includes=(-I "$REPOSITORY/cpp/include" -I "$REPOSITORY/cpp" -I abstraction-identity/cpp/include)
           if [ "$capability" = facade ]; then
-            for dependency in logging config router job model; do
+            for dependency in logging config router job model download storage; do
               includes+=(-I "abstraction-$dependency/cpp/include" -I "abstraction-$dependency/cpp")
             done
           fi

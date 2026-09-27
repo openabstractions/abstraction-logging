@@ -29,6 +29,26 @@ func TestGeneratedDispatchRejectsBeforeProvider(t *testing.T) {
 	endpoint := listen.Endpoint(fmt.Sprintf("lt-%d", os.Getpid()))
 	sink := make(observedSink, 4)
 	host, err := Listen(endpoint, sink)
+	if runtime.GOOS == "darwin" {
+		if host != nil {
+			host.Close()
+			t.Fatal("insufficiently proven caller created a host")
+		}
+		if !errors.Is(err, identity.ErrNotProven) {
+			t.Fatalf("expected startup proof refusal, got %v", err)
+		}
+		for _, path := range []string{endpoint, endpoint + ".lock"} {
+			if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("proof refusal created endpoint artifact %q: %v", path, err)
+			}
+		}
+		select {
+		case <-sink:
+			t.Fatal("proof refusal reached provider")
+		default:
+		}
+		t.Skip("generated dispatch requires a running service; Unix startup refusal and no provider call were checked")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,23 +103,6 @@ func TestGeneratedDispatchRejectsBeforeProvider(t *testing.T) {
 	}
 	if err := transport.WriteFrame(captured.frame); err != nil {
 		t.Fatal(err)
-	}
-	if runtime.GOOS == "darwin" {
-		select {
-		case err := <-failures:
-			if !errors.Is(err, identity.ErrNotProven) {
-				t.Fatalf("expected platform proof refusal, got %v", err)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("missing platform proof refusal")
-		}
-		select {
-		case <-sink:
-			t.Fatal("insufficiently proven caller reached provider")
-		default:
-		}
-		t.Log("UNPROVEN successful service calls on Darwin: Program requires stronger process/path proof; refusal verified")
-		return
 	}
 	select {
 	case got := <-sink:
