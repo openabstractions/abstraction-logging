@@ -15,10 +15,14 @@ import (
 type recordingSink struct {
 	mu      sync.Mutex
 	records []Record
-	fail    atomic.Int32 // fail this many deliveries first
+	fail    atomic.Int32    // fail this many deliveries first
+	ready   <-chan struct{} // when set, delivery begins after the fixture enqueues its batch
 }
 
 func (s *recordingSink) Write(r Record) error {
+	if s.ready != nil {
+		<-s.ready
+	}
 	if s.fail.Load() > 0 {
 		s.fail.Add(-1)
 		return errors.New("service refused")
@@ -235,7 +239,15 @@ func TestAsyncSinkCloseReturnsAtDeadlineWhenInnerCannotBeCancelled(t *testing.T)
 // A failed delivery is retried, never counted Failed, and a recovery delivers
 // the gap record ahead of the retried records [LOG-S12, LOG-S13].
 func TestAsyncSinkFailureAndRecoveryReportedOncePerTransition(t *testing.T) {
-	inner := &recordingSink{}
+	ready := make(chan struct{})
+	defer func() {
+		select {
+		case <-ready:
+		default:
+			close(ready)
+		}
+	}()
+	inner := &recordingSink{ready: ready}
 	inner.fail.Store(3)
 	var failures, recoveries atomic.Int32
 	var lastFailure atomic.Value
@@ -249,6 +261,7 @@ func TestAsyncSinkFailureAndRecoveryReportedOncePerTransition(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	close(ready) // The first failure snapshot must describe the complete five-record batch.
 	c, err := closeWithin(t, s, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)

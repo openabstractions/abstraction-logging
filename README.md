@@ -1,13 +1,29 @@
 # abstraction-logging
 
-Install the runtime first: https://openabstractions.org/adopt.html
+*For applications that write logs, and operators who read them.*
 
 Send structured application events to one local service and inspect bounded
 history later. The service chooses the destination, attributes the caller and
 keeps retained records. Applications never need the service's log-file path.
+A service in place of each program's own local logger gives one history for
+the whole machine, with each record attributed to the program that wrote it by
+what the kernel reports about the caller (see
+[Reading history](#reading-history-how-a-record-is-attributed)).
+
+**What's new here:** One log for the whole machine: each record is attributed
+to the program that wrote it from what the kernel reports, and authorized tools
+read or follow it.
+
+Install the runtime first: https://openabstractions.org/adopt.html
 
 Go, C++, Python, Rust and JavaScript clients use the same event and history
 contracts through the shared local transport.
+
+The [permission journey](https://github.com/openabstractions/abstractions/blob/main/examples/rights-playground/README.md)
+explains the common operation/resource model and its accepted one/all breadth
+rules. Application-scoped log history and the protected-source OS authorization
+path retain their own implementation prerequisites; the current history API
+below uses its existing account-wide gate.
 
 ## Send a record
 
@@ -91,17 +107,53 @@ availability is distinct from a native provider implementation in those
 languages. Consult [coverage](https://openabstractions.org/coverage.html) and
 release-specific evidence for tested scopes and platforms.
 
+## Service-owned history retention
+
+The Go runtime and standalone logging service select a single-writer retained
+file provider. Its default `logs_max_use` is 10% of the containing filesystem,
+capped at 4 GiB; `logs_max_retention` is unset. The active file and completed
+JSONL segments together stay within that encoded-byte limit. Filesystem
+metadata and allocation rounding are outside this byte count.
+
+The provider rotates monthly and by size, collects expired segments by their
+newest write time, and removes the oldest segments to meet the size limit.
+Open, write and history read enforce limits; the host also collects daily.
+Readers continue through retained rotations. Removed unread history returns
+the existing `gap` outcome with the original cursor. Reopening requires a fresh
+cursor. Retention failures reach the host's error callback; a single encoded
+record larger than the byte limit is refused. Log submission remains one-way.
+
+Native providers select resolved values through
+`OpenRetainedFileSink(path, LogsRetention{MaxUse, MaxRetention})` and
+`FileSink.SetRetention`. `OpenFileSink` retains its shared append-only behavior.
+The user, machine and run retention controls, machine locking, provenance and
+stamp remain accepted config `@2` work. Current config `@1` has no retention
+settings. Retention touches only this provider's completed log segments.
+
+A small-limit fixture writes 200 records in an automatically removed temporary
+directory, checks the retained byte bound, and demonstrates an old cursor gap:
+
+```sh
+go -C go test . -run TestRetentionSmallLimit -v -count=1
+```
+
+Run from the logging module checkout root. In the private aggregate checkout,
+replace `go` after `-C` with `openabstractions-flat/abstraction-logging/go`.
+
 ## Current limits
 
 - A successful sink call confirms bounded local submission. It is not a
   durable persistence receipt.
 - Standard `slog` discards handler errors. Use the resolved client directly
   when the application must react to delivery failure.
-- Current macOS source binds protected IPC calls to Program proof over XPC.
-  The Unix-socket path fails closed, and the published 0.2.0 package predates
-  XPC support.
-- No rotation or retention is implemented; the service keeps what its
-  bounded history retains and no more.
+- The installed macOS runtime binds protected IPC calls to Program proof over
+  XPC. Standalone Unix-socket calls lack that proof and fail closed. The retained
+  [0.3.0 installed check](https://github.com/openabstractions/abstractions/blob/main/research/release-0.3.0/macos-installed/logs/installed_check.log)
+  resolved the logging XPC endpoint; its
+  [receipt](https://github.com/openabstractions/abstractions/blob/main/research/release-0.3.0/macos-installed/receipt.json)
+  identifies the tested package. It does not qualify the current revision's
+  logging behavior.
+- User, machine and run retention controls remain config `@2` work.
 - Source support does not establish that each language package has been
   published or independently qualified at the selected revision.
 
@@ -119,3 +171,18 @@ differs from identity's proof rung `claimed`; see
 [CONTRACT.md](CONTRACT.md) states the rules.
 
 [Apache-2.0](LICENSE)
+
+<!-- BEGIN GENERATED PERMISSION DEFINITIONS -->
+
+## Permission definitions
+
+Generated from the existing compiled catalogue. [RIGHTS.json](RIGHTS.json) contains the complete action/profile records, disclosure, lifecycle, first-use behavior, selector support and finite bundles.
+
+This reference records compiled receiving support; RIGHTS.json names the compilation context. A connected runtime advertises current availability and selector support. These definitions supply no grant.
+
+| Action | Resource profile | Owning operations | First-use targets | Compiled receiver |
+|---|---|---|---|---|
+| `abstraction.logging/history.read` | `abstraction.logging/application-log@1` | `abstraction.logging/reader@2#Read`, `abstraction.logging/observer@2#Observe` | One, All | served in compiled context |
+| `abstraction.logging/history.read` | `abstraction.rights/legacy-exact-string@1` | `abstraction.logging/reader@1#Read`, `abstraction.logging/observer@1#Observe`, `abstraction.logging/source-reader@1#Sources`, `abstraction.logging/source-reader@1#Read`, `abstraction.logging/source-reader@1#StartAtEnd` | `none` | served in compiled context |
+
+<!-- END GENERATED PERMISSION DEFINITIONS -->

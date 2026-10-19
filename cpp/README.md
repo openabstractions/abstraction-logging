@@ -1,5 +1,7 @@
 # Logging from C++
 
+*For C++ applications.*
+
 Send structured events to the machine's logging host. The C++ client contains no
 file sink, store, listener or local fallback. `Logger::Log` supplies schema and
 timestamp; applications supply the event.

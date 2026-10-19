@@ -12,6 +12,22 @@ type Attestation = wire.Attestation
 
 type Page = wire.Page
 
+type ApplicationLogTarget = wire.ApplicationLogTarget
+type ApplicationLogSelection = wire.ApplicationLogSelection
+type ApplicationLogPage = wire.ApplicationLogPage
+type HistoryPageOutcome = wire.HistoryPageOutcome
+
+func HistoryPageOutcomeValues() []HistoryPageOutcome { return wire.HistoryPageOutcomeValues() }
+
+const (
+	ApplicationLogSelectionOneApp  = wire.ApplicationLogSelectionOneApp
+	ApplicationLogSelectionAllApps = wire.ApplicationLogSelectionAllApps
+)
+
+func ApplicationLogSelectionValues() []ApplicationLogSelection {
+	return wire.ApplicationLogSelectionValues()
+}
+
 type PageOutcome = wire.PageOutcome
 
 const (

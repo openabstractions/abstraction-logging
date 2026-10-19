@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ func TestAdmissionStopsBeforeProviderDrains(t *testing.T) {
 		t.Skip("Program proof unavailable; existing service test verifies refusal")
 	}
 	sink := blockedSink{make(chan struct{}), make(chan struct{})}
-	endpoint := listen.Endpoint(fmt.Sprintf("drain-%d", time.Now().UnixNano()))
+	endpoint := listen.Endpoint(fmt.Sprintf("drain-%d-%d", os.Getpid(), appTestID.Add(1)))
 	h, err := Listen(endpoint, sink)
 	if err != nil {
 		t.Fatal(err)

@@ -1,0 +1,389 @@
+package logging
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// LogsRetention is the provider's resolved logs_max_use and logs_max_retention.
+// MaxUse bounds the active file plus retained JSONL segments, in bytes. Zero
+// MaxRetention leaves age unset. Configuration precedence and text parsing are
+// owned by config; this native provider accepts their resolved values.
+type LogsRetention struct {
+	MaxUse       int64
+	MaxRetention time.Duration
+}
+
+var (
+	ErrRetentionPolicy        = errors.New("logging: invalid retention policy")
+	ErrRetentionOwner         = errors.New("logging: retained history already has a writer")
+	ErrRetentionRecord        = errors.New("logging: record exceeds logs_max_use")
+	errRetainedHistoryChanged = errors.New("logging: retained history changed outside provider")
+)
+
+const maxLogSegment = int64(128 << 20)
+
+// DefaultLogsRetention resolves the accepted default on path's filesystem:
+// 10 percent of total capacity, capped at 4 GiB, with age unset.
+// The containing directory must already exist.
+func DefaultLogsRetention(path string) (LogsRetention, error) {
+	total, err := logFilesystemBytes(filepath.Dir(path))
+	if err != nil {
+		return LogsRetention{}, err
+	}
+	return defaultLogsRetention(total)
+}
+
+func defaultLogsRetention(total uint64) (LogsRetention, error) {
+	bytes := min(total/10, uint64(4<<30))
+	if bytes == 0 {
+		return LogsRetention{}, ErrRetentionPolicy
+	}
+	return LogsRetention{MaxUse: int64(bytes)}, nil
+}
+
+// OpenDefaultRetainedFileSink opens a service-owned sink with storage's
+// accepted default policy. Config's next-version keys can replace the native
+// values through SetRetention without changing a logging service contract.
+func OpenDefaultRetainedFileSink(path string) (*FileSink, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	policy, err := DefaultLogsRetention(path)
+	if err != nil {
+		return nil, err
+	}
+	return OpenRetainedFileSink(path, policy)
+}
+
+type historySegment struct {
+	name string
+	base int64
+	info os.FileInfo
+}
+
+type fileRetention struct {
+	policy   LogsRetention
+	root     *os.Root
+	archive  *os.Root
+	lock     *os.File
+	name     string
+	segments []historySegment
+	base     int64
+	now      func() time.Time
+}
+
+// OpenRetainedFileSink opens a service-owned, single-writer history. The active
+// file stays at path; completed segments live in path+".history". The lifetime
+// OS lock prevents another retained provider from rotating the same history.
+// Use OpenFileSink for shared append-only files. External writers and edits are
+// outside this provider's lifecycle.
+func OpenRetainedFileSink(path string, policy LogsRetention) (*FileSink, error) {
+	if policy.MaxUse <= 0 || policy.MaxRetention < 0 {
+		return nil, ErrRetentionPolicy
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	r := &fileRetention{policy: policy, root: root, name: filepath.Base(path), now: time.Now}
+	s := &FileSink{path: path, MaxLine: DefaultMaxLine, retention: r}
+	fail := func(err error) (*FileSink, error) {
+		return nil, errors.Join(err, s.Close())
+	}
+	archiveName := r.name + ".history"
+	if err := root.Mkdir(archiveName, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return fail(err)
+	}
+	info, err := root.Lstat(archiveName)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fail(fmt.Errorf("logging: history directory must be a directory: %w", errors.Join(err, ErrRetentionPolicy)))
+	}
+	r.archive, err = root.OpenRoot(archiveName)
+	if err != nil {
+		return fail(err)
+	}
+	if info, err = r.archive.Lstat("writer.lock"); err == nil && !info.Mode().IsRegular() {
+		return fail(fmt.Errorf("logging: history lock must be a regular file"))
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fail(err)
+	}
+	r.lock, err = r.archive.OpenFile("writer.lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fail(err)
+	}
+	if err = lockRetainedHistory(r.lock); err != nil {
+		return fail(err)
+	}
+	entries, err := fs.ReadDir(r.archive.FS(), ".")
+	if err != nil {
+		return fail(err)
+	}
+	for _, entry := range entries {
+		base, ok := segmentBase(entry.Name())
+		if !ok {
+			continue
+		}
+		info, err := r.archive.Lstat(entry.Name())
+		if err != nil || !info.Mode().IsRegular() {
+			return fail(fmt.Errorf("logging: history segment must be a regular file: %w", errors.Join(err, ErrRetentionPolicy)))
+		}
+		if info.Size() == 0 || base > (1<<63-1)-info.Size() {
+			return fail(fmt.Errorf("logging: invalid history segment %s", entry.Name()))
+		}
+		r.segments = append(r.segments, historySegment{entry.Name(), base, info})
+	}
+	sort.Slice(r.segments, func(i, j int) bool { return r.segments[i].base < r.segments[j].base })
+	for _, segment := range r.segments {
+		if segment.base < r.base {
+			return fail(fmt.Errorf("logging: overlapping history segments"))
+		}
+		r.base = segment.base + segment.info.Size()
+	}
+	if err = s.openRetainedActiveLocked(); err != nil {
+		return fail(err)
+	}
+	if err = s.collectRetainedLocked(0); err != nil {
+		return fail(err)
+	}
+	return s, nil
+}
+
+func segmentBase(name string) (int64, bool) {
+	digits, ok := strings.CutSuffix(name, ".jsonl")
+	if !ok || len(digits) != 20 {
+		return 0, false
+	}
+	base, err := strconv.ParseInt(digits, 10, 64)
+	return base, err == nil && base >= 0 && fmt.Sprintf("%020d", base) == digits
+}
+
+func (r *fileRetention) close() error {
+	var err error
+	if r.lock != nil {
+		err = errors.Join(err, r.lock.Close())
+		r.lock = nil
+	}
+	if r.archive != nil {
+		err = errors.Join(err, r.archive.Close())
+		r.archive = nil
+	}
+	if r.root != nil {
+		err = errors.Join(err, r.root.Close())
+		r.root = nil
+	}
+	return err
+}
+
+func (s *FileSink) openRetainedActiveLocked() error {
+	r := s.retention
+	info, err := r.root.Lstat(r.name)
+	if err == nil && !info.Mode().IsRegular() {
+		return fmt.Errorf("logging: active history must be a regular file")
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	s.f, err = r.root.OpenFile(r.name, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	return err
+}
+
+// Collect enforces a service-owned sink's age and size policy, including while
+// idle. The runtime collector can call it on its daily/pressure cadence. Open,
+// Write and Read also enforce the policy. It never removes the active file or
+// scans other storage classes. Failures are returned to the host operator.
+func (s *FileSink) Collect() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.historyClosed {
+		return os.ErrClosed
+	}
+	if s.retention == nil {
+		return nil
+	}
+	return s.collectRetainedLocked(0)
+}
+
+// SetRetention installs resolved policy from the owning config consumer.
+// A collection failure is reported and the tighter policy remains in force:
+// later writes must satisfy it or return an error.
+func (s *FileSink) SetRetention(policy LogsRetention) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if policy.MaxUse <= 0 || policy.MaxRetention < 0 || s.retention == nil {
+		return ErrRetentionPolicy
+	}
+	if s.historyClosed {
+		return os.ErrClosed
+	}
+	s.retention.policy = policy
+	return s.collectRetainedLocked(0)
+}
+
+// MaintainRetention supplies the logs step on the accepted daily collector
+// cadence. Open/read/write also enforce limits; hosts can call Collect on
+// storage pressure. The returned function joins the worker after cancellation.
+func (s *FileSink) MaintainRetention(ctx context.Context, report func(error)) func() {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		timer := time.NewTicker(24 * time.Hour)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+				if err := s.Collect(); err != nil && report != nil {
+					report(err)
+				}
+			}
+		}
+	}()
+	return func() { <-done }
+}
+
+func (s *FileSink) prepareRetainedWriteLocked(bytes int64) error {
+	r := s.retention
+	if bytes > r.policy.MaxUse {
+		return ErrRetentionRecord
+	}
+	return s.collectRetainedLocked(bytes)
+}
+
+func (s *FileSink) activeRetainedInfoLocked() (os.FileInfo, error) {
+	if s.f == nil {
+		return nil, os.ErrClosed
+	}
+	info, err := s.f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	pathInfo, err := s.retention.root.Lstat(s.retention.name)
+	if err != nil {
+		return nil, err
+	}
+	if !pathInfo.Mode().IsRegular() || !os.SameFile(info, pathInfo) {
+		return nil, errRetainedHistoryChanged
+	}
+	return info, nil
+}
+
+func (s *FileSink) collectRetainedLocked(incoming int64) error {
+	r := s.retention
+	info, err := s.activeRetainedInfoLocked()
+	if err != nil {
+		return err
+	}
+	if info.Size() > (1<<63-1)-incoming || r.base > (1<<63-1)-info.Size()-incoming {
+		return fmt.Errorf("logging: history offset overflow")
+	}
+	now := r.now()
+	// Rotation size is an internal partition, never another policy key. Small
+	// limits still accept one complete record that fits MaxUse.
+	segmentLimit := min(maxLogSegment, max(int64(1), r.policy.MaxUse/8))
+	writeMonth := info.ModTime().UTC().Format("2006-01")
+	old := r.policy.MaxRetention > 0 && !info.ModTime().Add(r.policy.MaxRetention).After(now)
+	if info.Size() > 0 && (info.Size() > segmentLimit-incoming || writeMonth != now.UTC().Format("2006-01") || old) {
+		if err := s.rotateRetainedLocked(info); err != nil {
+			return err
+		}
+		info, err = s.activeRetainedInfoLocked()
+		if err != nil {
+			return err
+		}
+	}
+	used := info.Size() + incoming
+	for _, segment := range r.segments {
+		if used > (1<<63-1)-segment.info.Size() {
+			return fmt.Errorf("logging: history byte count overflow")
+		}
+		used += segment.info.Size()
+	}
+	// Age checks each segment: a clock adjustment must not let a newer-looking
+	// old segment shield expired segments written after it.
+	for i := 0; i < len(r.segments); {
+		segment := r.segments[i]
+		if r.policy.MaxRetention > 0 && !segment.info.ModTime().Add(r.policy.MaxRetention).After(now) {
+			if err := s.removeRetainedSegmentLocked(i); err != nil {
+				return err
+			}
+			used -= segment.info.Size()
+		} else {
+			i++
+		}
+	}
+	for used > r.policy.MaxUse && len(r.segments) > 0 {
+		bytes := r.segments[0].info.Size()
+		if err := s.removeRetainedSegmentLocked(0); err != nil {
+			return err
+		}
+		used -= bytes
+	}
+	if used > r.policy.MaxUse {
+		return ErrRetentionRecord
+	}
+	return nil
+}
+
+func (s *FileSink) removeRetainedSegmentLocked(index int) error {
+	r := s.retention
+	segment := r.segments[index]
+	current, err := r.archive.Lstat(segment.name)
+	if err != nil {
+		return err
+	}
+	if !current.Mode().IsRegular() || !os.SameFile(current, segment.info) || current.Size() != segment.info.Size() {
+		return errRetainedHistoryChanged
+	}
+	if err := r.archive.Remove(segment.name); err != nil {
+		return fmt.Errorf("logging: remove expired history: %w", err)
+	}
+	r.segments = append(r.segments[:index], r.segments[index+1:]...)
+	s.notifyHistoryLocked()
+	return nil
+}
+
+func (s *FileSink) rotateRetainedLocked(info os.FileInfo) error {
+	r := s.retention
+	if r.base > (1<<63-1)-info.Size() {
+		return fmt.Errorf("logging: history offset overflow")
+	}
+	name := fmt.Sprintf("%020d.jsonl", r.base)
+	if _, err := r.archive.Lstat(name); err == nil {
+		return fmt.Errorf("logging: history segment already exists")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := s.f.Close(); err != nil {
+		s.f = nil
+		return err
+	}
+	s.f = nil
+	if err := r.root.Rename(r.name, filepath.Join(r.name+".history", name)); err != nil {
+		return errors.Join(err, s.openRetainedActiveLocked())
+	}
+	r.segments = append(r.segments, historySegment{name, r.base, info})
+	r.base += info.Size()
+	// A crash after rename leaves a completed segment and no active file;
+	// Open reconstructs the offset and creates a fresh active file.
+	return s.openRetainedActiveLocked()
+}
+
+func (s *FileSink) notifyHistoryLocked() {
+	if s.historyChanged != nil && !s.historyClosed {
+		close(s.historyChanged)
+		s.historyChanged = make(chan struct{})
+	}
+}

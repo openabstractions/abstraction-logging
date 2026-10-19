@@ -1,0 +1,76 @@
+{
+  "format": "openabstractions-rights@1",
+  "owner": "abstraction.logging",
+  "generated": "Do not edit. Run rights-catalogue --write from the existing compiled catalogue.",
+  "source": "github.com/openabstractions/abstraction-facade/go/grants",
+  "availability": "Compiled catalogue reference: served and selector support use the named receiving-service context. Connected-runtime discovery supplies current availability. Facade Applications is experimental. Definitions grant no access.",
+  "compiled_receivers": {
+    "credentials": true,
+    "application_logs": true
+  },
+  "definitions": [
+    {
+      "definition": {
+        "action": "abstraction.logging/history.read",
+        "owner_contract": "abstraction.logging/reader@2",
+        "operations": [
+          "abstraction.logging/reader@2#Read",
+          "abstraction.logging/observer@2#Observe"
+        ],
+        "resource_profile": "abstraction.logging/application-log@1",
+        "resource_type": "abstraction.logging.ApplicationLogResource",
+        "enforced_by": [
+          "abstraction.logging/reader@2",
+          "abstraction.logging/observer@2"
+        ],
+        "disclosure": "Read or observe retained OA application events. One-app selection excludes unknown and unattributed records. All-app selection includes retained records under account binding and per-emitter blocks. Supplies no native OS source authority or helper launch permission.",
+        "lifecycle": "Captures normalized program and file identity once; retained emitter identity is never reopened. Replaced executable follows the captured identity rules. Deleted targets remain removable using retained rule bytes.",
+        "first_use": "none",
+        "served": true
+      },
+      "label": "Read application logs",
+      "supported_selectors": [
+        "one",
+        "all"
+      ],
+      "first_use_selectors": [
+        "one",
+        "all"
+      ],
+      "collection": "abstraction.logging/applications@1",
+      "all_effect": "All current and future applications' retained OA logs in this receiving account and runtime. Explicit app blocks filter matching emitters; native protected OS channels remain separate.",
+      "request_type": "abstraction.logging.ApplicationLogResource"
+    },
+    {
+      "definition": {
+        "action": "abstraction.logging/history.read",
+        "owner_contract": "abstraction.logging/reader@1",
+        "operations": [
+          "abstraction.logging/reader@1#Read",
+          "abstraction.logging/observer@1#Observe",
+          "abstraction.logging/source-reader@1#Sources",
+          "abstraction.logging/source-reader@1#Read",
+          "abstraction.logging/source-reader@1#StartAtEnd"
+        ],
+        "resource_profile": "abstraction.rights/legacy-exact-string@1",
+        "resource_type": "string (legacy exact resource)",
+        "enforced_by": [
+          "abstraction.logging/reader@1",
+          "abstraction.logging/observer@1",
+          "abstraction.logging/source-reader@1"
+        ],
+        "disclosure": "Read or long-poll retained account history. Sources checks each source right before probe; Read/StartAtEnd recheck and invoke native source read.",
+        "lifecycle": "All retained OA events of receiving account; future writing apps included. One whole native log source; no provider/program/time-window right.",
+        "first_use": "none",
+        "served": true
+      },
+      "label": "abstraction.logging/history.read",
+      "supported_selectors": [],
+      "first_use_selectors": [],
+      "collection": "All retained OA events of receiving account; future writing apps included. One whole native log source; no provider/program/time-window right.",
+      "all_effect": "",
+      "request_type": "string (legacy exact resource)"
+    }
+  ],
+  "bundles": []
+}

@@ -8,6 +8,54 @@ interface FrameTransport {
   writeFrame(frame: Uint8Array): Promise<void>;
 }
 
+export declare class ApplicationHistoryObserverClient {
+  constructor(transport: FrameTransport);
+  /** Read with reader@2 semantics, waiting once at an empty physical end for 0..30000 ms. Unrelated writes can produce filtered progress. Cancellation, fixed deadline and bounded waiter capacity apply. Authorization is reevaluated before delivery; no decision is retained across waits or pages. */
+  observe(target: ApplicationLogTarget, cursor: string, maxRecords: bigint, maxBytes: bigint, waitMs: bigint): Promise<ApplicationLogPage>;
+}
+
+export declare const ApplicationHistoryObserverService: Readonly<{ wireName: "abstraction.logging/observer@2"; Client: typeof ApplicationHistoryObserverClient }>;
+
+export declare class ApplicationHistoryReaderClient {
+  constructor(transport: FrameTransport);
+  /** Read one or all emitting programs. Bounds are 1..256 returned records and 1..65536 encoded Record bytes; scan work is independently bounded. Empty cursor starts earliest retained history; end fixes the current physical end. One consistent Rights snapshot governs selection and concrete outgoing emitters. No fallback to account-wide reader@1 is permitted. */
+  read(target: ApplicationLogTarget, cursor: string, maxRecords: bigint, maxBytes: bigint): Promise<ApplicationLogPage>;
+}
+
+export declare const ApplicationHistoryReaderService: Readonly<{ wireName: "abstraction.logging/reader@2"; Client: typeof ApplicationHistoryReaderClient }>;
+
+// Bounded attributed history. Empty advancing non-end pages report finite scan
+// progress. Refusals preserve the supplied cursor and contain no records.
+// Cursors bind caller, selection, captured target, history instance and
+// position; gap requires explicit restart.
+export interface ApplicationLogPage {
+  outcome: HistoryPageOutcome;
+  records: Record[];
+  next: string;
+  atEnd: boolean;
+}
+
+// The application-log@1 owning target document. Trusted preparation normalizes
+// the program and captures its key; callers cannot supply a key to a logging
+// read. Historical enforcers use their captured evidence without reopening a
+// stored image.
+export interface ApplicationLogResource {
+  program: string;
+  capturedFileKey: string;
+}
+
+export type ApplicationLogSelection = (typeof ApplicationLogSelection)[keyof typeof ApplicationLogSelection];
+export declare const ApplicationLogSelection: Readonly<{ OneApp: "one_app"; AllApps: "all_apps" }>;
+
+// One requires an Identity program; all omits program. Account is established
+// by the receiving service. All includes current and future attributed OA
+// emitters in that account, subject to blocks. Native sources and unattributed
+// legacy rows are excluded.
+export interface ApplicationLogTarget {
+  selection: ApplicationLogSelection;
+  program: string;
+}
+
 // One hop of the provenance chain. program is the name a party gives itself and
 // appears on the writer's self claim. exe is the executable path the attesting
 // mechanism resolved for the party it established; a receiving service's stamp
@@ -42,6 +90,9 @@ export declare class HistoryObserverClient {
 
 export declare const HistoryObserverService: Readonly<{ wireName: "abstraction.logging/observer@1"; Client: typeof HistoryObserverClient }>;
 
+export type HistoryPageOutcome = (typeof HistoryPageOutcome)[keyof typeof HistoryPageOutcome];
+export declare const HistoryPageOutcome: Readonly<{ Page: "page"; Gap: "gap"; Unavailable: "unavailable"; Invalid: "invalid"; RecordTooLarge: "record_too_large"; Corrupt: "corrupt"; Unsupported: "unsupported"; Forbidden: "forbidden"; NotPermitted: "not_permitted"; OsAuthorizationRequired: "os_authorization_required"; OsAuthorizationPending: "os_authorization_pending" }>;
+
 /** Authorized bounded access to retained logging history. Applications receive records and opaque cursors; history location and retention belong to the provider. */
 export declare class HistoryReaderClient {
   constructor(transport: FrameTransport);
@@ -65,6 +116,18 @@ export interface Page {
 
 export type PageOutcome = (typeof PageOutcome)[keyof typeof PageOutcome];
 export declare const PageOutcome: Readonly<{ Page: "page"; Gap: "gap"; Unavailable: "unavailable"; InvalidRequest: "invalid_request"; RecordTooLarge: "record_too_large"; Corrupt: "corrupt"; Unsupported: "unsupported" }>;
+
+// Untrusted claims copied from a native source row. These values are never
+// verified OA identity.
+export interface ProducerClaim {
+  provider: string;
+  program: string;
+  exe: string;
+  user: string;
+  pid: bigint;
+  uid: bigint;
+  gid: bigint;
+}
 
 export interface Record {
   schema: bigint;
@@ -99,18 +162,137 @@ export declare class SinkClient {
 
 export declare const SinkService: Readonly<{ wireName: "abstraction.logging/sink@1"; Client: typeof SinkClient }>;
 
+export type SourceAvailability = (typeof SourceAvailability)[keyof typeof SourceAvailability];
+export declare const SourceAvailability: Readonly<{ Available: "available"; PermissionDenied: "permission_denied"; Unavailable: "unavailable"; Unsupported: "unsupported" }>;
+
+export interface SourceCatalog {
+  sources: SourceDescriptor[];
+  outcome: SourceCatalogOutcome;
+}
+
+export type SourceCatalogOutcome = (typeof SourceCatalogOutcome)[keyof typeof SourceCatalogOutcome];
+export declare const SourceCatalogOutcome: Readonly<{ Catalog: "catalog"; Forbidden: "forbidden"; NotPermitted: "not_permitted"; Unavailable: "unavailable"; Invalid: "invalid" }>;
+
+// A fixed source identifier and current access status. available means the
+// native API can be queried under the granted scope; it does not promise
+// complete capture. limitations states known platform constraints. An empty
+// page establishes no match in the source's visible retained data only.
+export interface SourceDescriptor {
+  id: string;
+  availability: SourceAvailability;
+  limitations: Array<SourceLimitation | (string & {})>;
+}
+
+export type SourceLimitation = (typeof SourceLimitation)[keyof typeof SourceLimitation];
+export declare const SourceLimitation: Readonly<{ Retention: "retention"; NativeRedaction: "native_redaction"; CollectionPolicy: "collection_policy"; NativeAccess: "native_access"; VisibilityUnknown: "visibility_unknown" }>;
+
+// A bounded page from exactly one source. Limits count encoded SourceRecord
+// bytes and entries. Cursors bind source ID and reader instance. at_end means
+// the observed end during this call; later native entries may appear. A gap
+// requires an explicit restart with empty cursor; refusal never advances a
+// supplied cursor.
+export interface SourcePage {
+  outcome: HistoryPageOutcome;
+  records: SourceRecord[];
+  next: string;
+  atEnd: boolean;
+}
+
+/** Authorized bounded reads from fixed, read-only operating-system log sources. */
+export declare class SourceReaderClient {
+  constructor(transport: FrameTransport);
+  /** List the runtime's fixed platform source identifiers and current access status. Source IDs are not paths or query expressions. Per-source OA rights are checked before native probing; a refused source is listed as permission_denied without a native access attempt. */
+  sources(): Promise<SourceCatalog>;
+  /** Read one fixed source with bounds of 1..256 entries and 1..65536 encoded SourceRecord bytes. The service checks the exact source-specific right before native access. A provider without a source returns unsupported; OA policy denial returns not_permitted, known native access denial returns forbidden and uncertainty returns unavailable. Invalid semantic bounds return invalid. Refusals contain no records, preserve the supplied cursor and never announce end. Empty cursor starts at the earliest visible retained entry the native API exposes. Cursors bind source ID and reader instance; source mismatch, restart or retention loss returns gap and preserves the cursor. No cross-source ordering, complete-capture claim or observation guarantee is made. */
+  read(sourceId: string, cursor: string, maxRecords: bigint, maxBytes: bigint): Promise<SourcePage>;
+  /** Return an opaque baseline cursor at the source's current end without returning records. The exact source-specific right is checked before native access and rechecked before the cursor is returned. A source without a safe current-position operation returns unsupported. Use the returned cursor with Read to request entries that follow this observed end; an empty source produces a valid empty baseline. If no native entry exists at the baseline, a later retention loss before the first read may be undetectable. Cursors bind source ID and reader instance; restart or detectable retention loss returns gap. This is a cursor operation, not a watch or complete-capture guarantee. */
+  startAtEnd(sourceId: string): Promise<SourcePage>;
+}
+
+export declare const SourceReaderService: Readonly<{ wireName: "abstraction.logging/source-reader@1"; Client: typeof SourceReaderClient }>;
+
+// One normalized native source entry. record.identity must be empty; native
+// producer claims remain in producer, separate from authenticated OA callers.
+export interface SourceRecord {
+  sourceId: string;
+  record: Record;
+  producer: ProducerClaim | null;
+}
+
 export declare function decode(data: Uint8Array): Record;
 
+export declare function decodeApplicationLogPage(data: Uint8Array): ApplicationLogPage;
+
+export declare function decodeApplicationLogResource(data: Uint8Array): ApplicationLogResource;
+
+export declare function decodeApplicationLogTarget(data: Uint8Array): ApplicationLogTarget;
+
+export declare function decodeAttestation(data: Uint8Array): Attestation;
+
+export declare function decodePage(data: Uint8Array): Page;
+
+export declare function decodeProducerClaim(data: Uint8Array): ProducerClaim;
+
+export declare function decodeRecord(data: Uint8Array): Record;
+
+export declare function decodeSourceCatalog(data: Uint8Array): SourceCatalog;
+
+export declare function decodeSourceDescriptor(data: Uint8Array): SourceDescriptor;
+
+export declare function decodeSourcePage(data: Uint8Array): SourcePage;
+
+export declare function decodeSourceRecord(data: Uint8Array): SourceRecord;
+
 export declare function encode(v: Record): Uint8Array;
+
+export declare function encodeApplicationLogPage(v: ApplicationLogPage): Uint8Array;
+
+export declare function encodeApplicationLogResource(v: ApplicationLogResource): Uint8Array;
+
+export declare function encodeApplicationLogTarget(v: ApplicationLogTarget): Uint8Array;
+
+export declare function encodeAttestation(v: Attestation): Uint8Array;
+
+export declare function encodePage(v: Page): Uint8Array;
+
+export declare function encodeProducerClaim(v: ProducerClaim): Uint8Array;
+
+export declare function encodeRecord(v: Record): Uint8Array;
+
+export declare function encodeSourceCatalog(v: SourceCatalog): Uint8Array;
+
+export declare function encodeSourceDescriptor(v: SourceDescriptor): Uint8Array;
+
+export declare function encodeSourcePage(v: SourcePage): Uint8Array;
+
+export declare function encodeSourceRecord(v: SourceRecord): Uint8Array;
 
 export declare const historyCursorWords: readonly ["end"];
 
 export declare const historyErrorCodes: readonly ["caller_unavailable", "identity_required", "wrong_user", "policy_unavailable", "forbidden"];
 
+export declare const historyIdentityErrorCodes: readonly ["caller_unavailable", "identity_required", "wrong_user"];
+
+export declare function newApplicationLogPage(): ApplicationLogPage;
+
+export declare function newApplicationLogResource(): ApplicationLogResource;
+
+export declare function newApplicationLogTarget(): ApplicationLogTarget;
+
 export declare function newAttestation(): Attestation;
 
 export declare function newPage(): Page;
 
+export declare function newProducerClaim(): ProducerClaim;
+
 export declare function newRecord(): Record;
+
+export declare function newSourceCatalog(): SourceCatalog;
+
+export declare function newSourceDescriptor(): SourceDescriptor;
+
+export declare function newSourcePage(): SourcePage;
+
+export declare function newSourceRecord(): SourceRecord;
 
 export {};

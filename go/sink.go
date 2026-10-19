@@ -38,6 +38,7 @@ type FileSink struct {
 	historyChanged chan struct{}
 	historyWaiters int
 	historyClosed  bool
+	retention      *fileRetention
 
 	// MaxLine caps one encoded record. Beyond this the atomicity argument above
 	// stops holding and concurrent writers could interleave halves of two lines,
@@ -90,15 +91,26 @@ func (s *FileSink) Write(r Record) error {
 			return err
 		}
 	}
+	return s.appendEncoded(b)
+}
+
+func (s *FileSink) appendEncoded(b []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.historyClosed {
+		return os.ErrClosed
+	}
+	if s.retention != nil {
+		if err := s.prepareRetainedWriteLocked(int64(len(b))); err != nil {
+			return err
+		}
+	}
 	n, writeErr := s.f.Write(b)
-	err = writeErr
 	if n > 0 && s.historyChanged != nil {
 		close(s.historyChanged)
 		s.historyChanged = make(chan struct{})
 	}
-	return err
+	return writeErr
 }
 
 // ErrLineCap reports that no record fits: the cap is smaller than the smallest
@@ -252,7 +264,15 @@ func (s *FileSink) Close() error {
 			close(s.historyChanged)
 		}
 	}
-	return s.f.Close()
+	var err error
+	if s.f != nil {
+		err = s.f.Close()
+		s.f = nil
+	}
+	if s.retention != nil {
+		err = errors.Join(err, s.retention.close())
+	}
+	return err
 }
 
 // MultiSink writes to several sinks. A failure in one does not stop the others,

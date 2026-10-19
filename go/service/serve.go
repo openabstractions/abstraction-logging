@@ -70,7 +70,7 @@ func Serve(args []string) error {
 	if err := os.MkdirAll(filepath.Dir(*out), 0700); err != nil {
 		return err
 	}
-	sink, err := logging.OpenFileSink(*out)
+	sink, err := logging.OpenDefaultRetainedFileSink(*out)
 	if err != nil {
 		return err
 	}
@@ -83,6 +83,8 @@ func Serve(args []string) error {
 	host.OnError = func(err error) { fmt.Fprintln(os.Stderr, "logging:", err) }
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
+	joinRetention := sink.MaintainRetention(ctx, host.OnError)
+	defer func() { cancel(); joinRetention() }()
 	fmt.Fprintln(os.Stdout, "logging: listening", *endpoint)
 	return host.Serve(ctx)
 }

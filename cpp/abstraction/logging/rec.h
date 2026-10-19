@@ -69,6 +69,171 @@ inline constexpr bool operator!=(std::string_view name, PageOutcome value) { ret
 
 inline const std::vector<std::string> kPageOutcomeNames = {"page", "gap", "unavailable", "invalid_request", "record_too_large", "corrupt", "unsupported"};
 
+enum class HistoryPageOutcome : std::int32_t {
+    Page = 1,
+    Gap = 2,
+    Unavailable = 3,
+    Invalid = 4,
+    RecordTooLarge = 5,
+    Corrupt = 6,
+    Unsupported = 7,
+    Forbidden = 8,
+    NotPermitted = 9,
+    OsAuthorizationRequired = 10,
+    OsAuthorizationPending = 11,
+};
+
+// The member's name on the wire; empty for a value that names no member.
+inline constexpr std::string_view wire_name(HistoryPageOutcome value) {
+    switch (value) {
+        case HistoryPageOutcome::Page: return "page";
+        case HistoryPageOutcome::Gap: return "gap";
+        case HistoryPageOutcome::Unavailable: return "unavailable";
+        case HistoryPageOutcome::Invalid: return "invalid";
+        case HistoryPageOutcome::RecordTooLarge: return "record_too_large";
+        case HistoryPageOutcome::Corrupt: return "corrupt";
+        case HistoryPageOutcome::Unsupported: return "unsupported";
+        case HistoryPageOutcome::Forbidden: return "forbidden";
+        case HistoryPageOutcome::NotPermitted: return "not_permitted";
+        case HistoryPageOutcome::OsAuthorizationRequired: return "os_authorization_required";
+        case HistoryPageOutcome::OsAuthorizationPending: return "os_authorization_pending";
+    }
+    return {};
+}
+
+// The member a wire name spells; empty for a name this vocabulary refuses.
+inline std::optional<HistoryPageOutcome> parse_history_page_outcome(std::string_view name) {
+    if (name == "page") return HistoryPageOutcome::Page;
+    if (name == "gap") return HistoryPageOutcome::Gap;
+    if (name == "unavailable") return HistoryPageOutcome::Unavailable;
+    if (name == "invalid") return HistoryPageOutcome::Invalid;
+    if (name == "record_too_large") return HistoryPageOutcome::RecordTooLarge;
+    if (name == "corrupt") return HistoryPageOutcome::Corrupt;
+    if (name == "unsupported") return HistoryPageOutcome::Unsupported;
+    if (name == "forbidden") return HistoryPageOutcome::Forbidden;
+    if (name == "not_permitted") return HistoryPageOutcome::NotPermitted;
+    if (name == "os_authorization_required") return HistoryPageOutcome::OsAuthorizationRequired;
+    if (name == "os_authorization_pending") return HistoryPageOutcome::OsAuthorizationPending;
+    return std::nullopt;
+}
+
+// A member equals its wire name, so code holding the contract's word compares directly.
+inline constexpr bool operator==(HistoryPageOutcome value, std::string_view name) { return wire_name(value) == name; }
+inline constexpr bool operator!=(HistoryPageOutcome value, std::string_view name) { return wire_name(value) != name; }
+inline constexpr bool operator==(std::string_view name, HistoryPageOutcome value) { return wire_name(value) == name; }
+inline constexpr bool operator!=(std::string_view name, HistoryPageOutcome value) { return wire_name(value) != name; }
+
+inline const std::vector<std::string> kHistoryPageOutcomeNames = {"page", "gap", "unavailable", "invalid", "record_too_large", "corrupt", "unsupported", "forbidden", "not_permitted", "os_authorization_required", "os_authorization_pending"};
+
+enum class ApplicationLogSelection : std::int32_t {
+    OneApp = 1,
+    AllApps = 2,
+};
+
+// The member's name on the wire; empty for a value that names no member.
+inline constexpr std::string_view wire_name(ApplicationLogSelection value) {
+    switch (value) {
+        case ApplicationLogSelection::OneApp: return "one_app";
+        case ApplicationLogSelection::AllApps: return "all_apps";
+    }
+    return {};
+}
+
+// The member a wire name spells; empty for a name this vocabulary refuses.
+inline std::optional<ApplicationLogSelection> parse_application_log_selection(std::string_view name) {
+    if (name == "one_app") return ApplicationLogSelection::OneApp;
+    if (name == "all_apps") return ApplicationLogSelection::AllApps;
+    return std::nullopt;
+}
+
+// A member equals its wire name, so code holding the contract's word compares directly.
+inline constexpr bool operator==(ApplicationLogSelection value, std::string_view name) { return wire_name(value) == name; }
+inline constexpr bool operator!=(ApplicationLogSelection value, std::string_view name) { return wire_name(value) != name; }
+inline constexpr bool operator==(std::string_view name, ApplicationLogSelection value) { return wire_name(value) == name; }
+inline constexpr bool operator!=(std::string_view name, ApplicationLogSelection value) { return wire_name(value) != name; }
+
+inline const std::vector<std::string> kApplicationLogSelectionNames = {"one_app", "all_apps"};
+
+enum class SourceAvailability : std::int32_t {
+    Available = 1,
+    PermissionDenied = 2,
+    Unavailable = 3,
+    Unsupported = 4,
+};
+
+// The member's name on the wire; empty for a value that names no member.
+inline constexpr std::string_view wire_name(SourceAvailability value) {
+    switch (value) {
+        case SourceAvailability::Available: return "available";
+        case SourceAvailability::PermissionDenied: return "permission_denied";
+        case SourceAvailability::Unavailable: return "unavailable";
+        case SourceAvailability::Unsupported: return "unsupported";
+    }
+    return {};
+}
+
+// The member a wire name spells; empty for a name this vocabulary refuses.
+inline std::optional<SourceAvailability> parse_source_availability(std::string_view name) {
+    if (name == "available") return SourceAvailability::Available;
+    if (name == "permission_denied") return SourceAvailability::PermissionDenied;
+    if (name == "unavailable") return SourceAvailability::Unavailable;
+    if (name == "unsupported") return SourceAvailability::Unsupported;
+    return std::nullopt;
+}
+
+// A member equals its wire name, so code holding the contract's word compares directly.
+inline constexpr bool operator==(SourceAvailability value, std::string_view name) { return wire_name(value) == name; }
+inline constexpr bool operator!=(SourceAvailability value, std::string_view name) { return wire_name(value) != name; }
+inline constexpr bool operator==(std::string_view name, SourceAvailability value) { return wire_name(value) == name; }
+inline constexpr bool operator!=(std::string_view name, SourceAvailability value) { return wire_name(value) != name; }
+
+inline const std::vector<std::string> kSourceAvailabilityNames = {"available", "permission_denied", "unavailable", "unsupported"};
+
+inline const std::vector<std::string> kSourceLimitationNames = {"retention", "native_redaction", "collection_policy", "native_access", "visibility_unknown"};
+inline constexpr std::string_view kSourceLimitationRetention = "retention";
+inline constexpr std::string_view kSourceLimitationNativeRedaction = "native_redaction";
+inline constexpr std::string_view kSourceLimitationCollectionPolicy = "collection_policy";
+inline constexpr std::string_view kSourceLimitationNativeAccess = "native_access";
+inline constexpr std::string_view kSourceLimitationVisibilityUnknown = "visibility_unknown";
+
+enum class SourceCatalogOutcome : std::int32_t {
+    Catalog = 1,
+    Forbidden = 2,
+    NotPermitted = 3,
+    Unavailable = 4,
+    Invalid = 5,
+};
+
+// The member's name on the wire; empty for a value that names no member.
+inline constexpr std::string_view wire_name(SourceCatalogOutcome value) {
+    switch (value) {
+        case SourceCatalogOutcome::Catalog: return "catalog";
+        case SourceCatalogOutcome::Forbidden: return "forbidden";
+        case SourceCatalogOutcome::NotPermitted: return "not_permitted";
+        case SourceCatalogOutcome::Unavailable: return "unavailable";
+        case SourceCatalogOutcome::Invalid: return "invalid";
+    }
+    return {};
+}
+
+// The member a wire name spells; empty for a name this vocabulary refuses.
+inline std::optional<SourceCatalogOutcome> parse_source_catalog_outcome(std::string_view name) {
+    if (name == "catalog") return SourceCatalogOutcome::Catalog;
+    if (name == "forbidden") return SourceCatalogOutcome::Forbidden;
+    if (name == "not_permitted") return SourceCatalogOutcome::NotPermitted;
+    if (name == "unavailable") return SourceCatalogOutcome::Unavailable;
+    if (name == "invalid") return SourceCatalogOutcome::Invalid;
+    return std::nullopt;
+}
+
+// A member equals its wire name, so code holding the contract's word compares directly.
+inline constexpr bool operator==(SourceCatalogOutcome value, std::string_view name) { return wire_name(value) == name; }
+inline constexpr bool operator!=(SourceCatalogOutcome value, std::string_view name) { return wire_name(value) != name; }
+inline constexpr bool operator==(std::string_view name, SourceCatalogOutcome value) { return wire_name(value) == name; }
+inline constexpr bool operator!=(std::string_view name, SourceCatalogOutcome value) { return wire_name(value) != name; }
+
+inline const std::vector<std::string> kSourceCatalogOutcomeNames = {"catalog", "forbidden", "not_permitted", "unavailable", "invalid"};
+
 inline const std::vector<std::string> kServiceErrorCodeNames = {"handler_error", "invalid_result", "unknown_version", "unknown_service", "unknown_method", "wrong_mode", "caller_unavailable", "identity_required", "wrong_user", "policy_unavailable", "forbidden"};
 inline constexpr std::string_view kServiceErrorCodeHandlerError = "handler_error";
 inline constexpr std::string_view kServiceErrorCodeInvalidResult = "invalid_result";
@@ -85,6 +250,8 @@ inline constexpr std::string_view kServiceErrorCodeForbidden = "forbidden";
 inline const std::vector<std::string> kHistoryErrorCodes = {"caller_unavailable", "identity_required", "wrong_user", "policy_unavailable", "forbidden"};
 
 inline const std::vector<std::string> kHistoryCursorWords = {"end"};
+
+inline const std::vector<std::string> kHistoryIdentityErrorCodes = {"caller_unavailable", "identity_required", "wrong_user"};
 
 // One hop of the provenance chain. program is the name a party gives itself and
 // appears on the writer's self claim. exe is the executable path the attesting
@@ -124,6 +291,82 @@ struct Record {
 struct Page {
     PageOutcome outcome{};
     std::vector<Record> records;
+    std::string next;
+    bool at_end = false;
+};
+
+// One requires an Identity program; all omits program. Account is established
+// by the receiving service. All includes current and future attributed OA
+// emitters in that account, subject to blocks. Native sources and unattributed
+// legacy rows are excluded.
+struct ApplicationLogTarget {
+    ApplicationLogSelection selection{};
+    std::string program;
+};
+
+// The application-log@1 owning target document. Trusted preparation normalizes
+// the program and captures its key; callers cannot supply a key to a logging
+// read. Historical enforcers use their captured evidence without reopening a
+// stored image.
+struct ApplicationLogResource {
+    std::string program;
+    std::string captured_file_key;
+};
+
+// Bounded attributed history. Empty advancing non-end pages report finite scan
+// progress. Refusals preserve the supplied cursor and contain no records.
+// Cursors bind caller, selection, captured target, history instance and
+// position; gap requires explicit restart.
+struct ApplicationLogPage {
+    HistoryPageOutcome outcome{};
+    std::vector<Record> records;
+    std::string next;
+    bool at_end = false;
+};
+
+// A fixed source identifier and current access status. available means the
+// native API can be queried under the granted scope; it does not promise
+// complete capture. limitations states known platform constraints. An empty
+// page establishes no match in the source's visible retained data only.
+struct SourceDescriptor {
+    std::string id;
+    SourceAvailability availability{};
+    std::vector<std::string> limitations;
+};
+
+struct SourceCatalog {
+    std::vector<SourceDescriptor> sources;
+    SourceCatalogOutcome outcome{};
+};
+
+// Untrusted claims copied from a native source row. These values are never
+// verified OA identity.
+struct ProducerClaim {
+    std::string provider;
+    std::string program;
+    std::string exe;
+    std::string user;
+    std::int64_t pid = 0;
+    std::int64_t uid = 0;
+    std::int64_t gid = 0;
+};
+
+// One normalized native source entry. record.identity must be empty; native
+// producer claims remain in producer, separate from authenticated OA callers.
+struct SourceRecord {
+    std::string source_id;
+    Record record;
+    std::optional<ProducerClaim> producer;
+};
+
+// A bounded page from exactly one source. Limits count encoded SourceRecord
+// bytes and entries. Cursors bind source ID and reader instance. at_end means
+// the observed end during this call; later native entries may appear. A gap
+// requires an explicit restart with empty cursor; refusal never advances a
+// supplied cursor.
+struct SourcePage {
+    HistoryPageOutcome outcome{};
+    std::vector<SourceRecord> records;
     std::string next;
     bool at_end = false;
 };
@@ -173,6 +416,19 @@ inline void strs(std::string& out, const std::vector<std::string>& v, int depth)
     out += ']';
 }
 
+template <typename E>
+inline void enum_strs(std::string& out, const std::vector<E>& v, int depth) {
+    if (v.empty()) { out += "[]"; return; }
+    out += "[\n";
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        pad(out, depth + 1);
+        esc(out, std::string(wire_name(v[i])));
+        if (i + 1 < v.size()) out += ',';
+        out += '\n';
+    }
+    pad(out, depth);
+    out += ']';
+}
 
 
 inline bool ws(unsigned char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
@@ -302,6 +558,35 @@ struct OAHistoryObserverObserveArguments {
     std::int64_t wait_ms = 0;
 };
 
+struct OAApplicationHistoryReaderReadArguments {
+    ApplicationLogTarget target;
+    std::string cursor;
+    std::int64_t max_records = 0;
+    std::int64_t max_bytes = 0;
+};
+
+struct OAApplicationHistoryObserverObserveArguments {
+    ApplicationLogTarget target;
+    std::string cursor;
+    std::int64_t max_records = 0;
+    std::int64_t max_bytes = 0;
+    std::int64_t wait_ms = 0;
+};
+
+struct OASourceReaderSourcesArguments {
+};
+
+struct OASourceReaderReadArguments {
+    std::string source_id;
+    std::string cursor;
+    std::int64_t max_records = 0;
+    std::int64_t max_bytes = 0;
+};
+
+struct OASourceReaderStartAtEndArguments {
+    std::string source_id;
+};
+
 struct OAServiceFrame {
     std::int32_t version = 0;
     std::string service;
@@ -329,17 +614,55 @@ struct OAHistoryReaderReadResult {
 struct OAHistoryObserverObserveResult {
     Page value;
 };
+
+struct OAApplicationHistoryReaderReadResult {
+    ApplicationLogPage value;
+};
+
+struct OAApplicationHistoryObserverObserveResult {
+    ApplicationLogPage value;
+};
+
+struct OASourceReaderSourcesResult {
+    SourceCatalog value;
+};
+
+struct OASourceReaderReadResult {
+    SourcePage value;
+};
+
+struct OASourceReaderStartAtEndResult {
+    SourcePage value;
+};
 inline void enc_attestation(std::string&, const Attestation&, int);
 inline void enc_record(std::string&, const Record&, int);
 inline void enc_page(std::string&, const Page&, int);
+inline void enc_application_log_target(std::string&, const ApplicationLogTarget&, int);
+inline void enc_application_log_resource(std::string&, const ApplicationLogResource&, int);
+inline void enc_application_log_page(std::string&, const ApplicationLogPage&, int);
+inline void enc_source_descriptor(std::string&, const SourceDescriptor&, int);
+inline void enc_source_catalog(std::string&, const SourceCatalog&, int);
+inline void enc_producer_claim(std::string&, const ProducerClaim&, int);
+inline void enc_source_record(std::string&, const SourceRecord&, int);
+inline void enc_source_page(std::string&, const SourcePage&, int);
 inline void enc_oa_sink_write_arguments(std::string&, const OASinkWriteArguments&, int);
 inline void enc_oa_history_reader_read_arguments(std::string&, const OAHistoryReaderReadArguments&, int);
 inline void enc_oa_history_observer_observe_arguments(std::string&, const OAHistoryObserverObserveArguments&, int);
+inline void enc_oa_application_history_reader_read_arguments(std::string&, const OAApplicationHistoryReaderReadArguments&, int);
+inline void enc_oa_application_history_observer_observe_arguments(std::string&, const OAApplicationHistoryObserverObserveArguments&, int);
+inline void enc_oa_source_reader_sources_arguments(std::string&, const OASourceReaderSourcesArguments&, int);
+inline void enc_oa_source_reader_read_arguments(std::string&, const OASourceReaderReadArguments&, int);
+inline void enc_oa_source_reader_start_at_end_arguments(std::string&, const OASourceReaderStartAtEndArguments&, int);
 inline void enc_oa_service_frame(std::string&, const OAServiceFrame&, int);
 inline void enc_oa_service_reply(std::string&, const OAServiceReply&, int);
 inline void enc_oa_service_error(std::string&, const OAServiceError&, int);
 inline void enc_oa_history_reader_read_result(std::string&, const OAHistoryReaderReadResult&, int);
 inline void enc_oa_history_observer_observe_result(std::string&, const OAHistoryObserverObserveResult&, int);
+inline void enc_oa_application_history_reader_read_result(std::string&, const OAApplicationHistoryReaderReadResult&, int);
+inline void enc_oa_application_history_observer_observe_result(std::string&, const OAApplicationHistoryObserverObserveResult&, int);
+inline void enc_oa_source_reader_sources_result(std::string&, const OASourceReaderSourcesResult&, int);
+inline void enc_oa_source_reader_read_result(std::string&, const OASourceReaderReadResult&, int);
+inline void enc_oa_source_reader_start_at_end_result(std::string&, const OASourceReaderStartAtEndResult&, int);
 
 inline void enc_attestation(std::string& out, const Attestation& v, int depth) {
     out += '{';
@@ -517,6 +840,248 @@ inline void enc_page(std::string& out, const Page& v, int depth) {
     out += '}';
 }
 
+inline void enc_application_log_target(std::string& out, const ApplicationLogTarget& v, int depth) {
+    if (wire_name(v.selection).empty()) throw Refusal("bad_enum", 0);
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "selection");
+    out += ": ";
+    esc(out, std::string(wire_name(v.selection)));
+    if (!v.program.empty()) {
+        out += ',';
+        out += '\n';
+        pad(out, depth + 1);
+        esc(out, "program");
+        out += ": ";
+        esc(out, v.program);
+    }
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_application_log_resource(std::string& out, const ApplicationLogResource& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "program");
+    out += ": ";
+    esc(out, v.program);
+    if (!v.captured_file_key.empty()) {
+        out += ',';
+        out += '\n';
+        pad(out, depth + 1);
+        esc(out, "captured_file_key");
+        out += ": ";
+        esc(out, v.captured_file_key);
+    }
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_application_log_page(std::string& out, const ApplicationLogPage& v, int depth) {
+    if (wire_name(v.outcome).empty()) throw Refusal("bad_enum", 0);
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "outcome");
+    out += ": ";
+    esc(out, std::string(wire_name(v.outcome)));
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "records");
+    out += ": ";
+    enc_list<Record>(out, v.records, depth + 1, enc_record);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "next");
+    out += ": ";
+    esc(out, v.next);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "at_end");
+    out += ": ";
+    out += v.at_end ? "true" : "false";
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_source_descriptor(std::string& out, const SourceDescriptor& v, int depth) {
+    if (wire_name(v.availability).empty()) throw Refusal("bad_enum", 0);
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "id");
+    out += ": ";
+    esc(out, v.id);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "availability");
+    out += ": ";
+    esc(out, std::string(wire_name(v.availability)));
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "limitations");
+    out += ": ";
+    strs(out, v.limitations, depth + 1);
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_source_catalog(std::string& out, const SourceCatalog& v, int depth) {
+    if (wire_name(v.outcome).empty()) throw Refusal("bad_enum", 0);
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "sources");
+    out += ": ";
+    enc_list<SourceDescriptor>(out, v.sources, depth + 1, enc_source_descriptor);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "outcome");
+    out += ": ";
+    esc(out, std::string(wire_name(v.outcome)));
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_producer_claim(std::string& out, const ProducerClaim& v, int depth) {
+    out += '{';
+    bool first = true;
+    if (!v.provider.empty()) {
+        first = false;
+        out += '\n';
+        pad(out, depth + 1);
+        esc(out, "provider");
+        out += ": ";
+        esc(out, v.provider);
+    }
+    if (!v.program.empty()) {
+        if (!first) out += ',';
+        first = false;
+        out += '\n';
+        pad(out, depth + 1);
+        esc(out, "program");
+        out += ": ";
+        esc(out, v.program);
+    }
+    if (!v.exe.empty()) {
+        if (!first) out += ',';
+        first = false;
+        out += '\n';
+        pad(out, depth + 1);
+        esc(out, "exe");
+        out += ": ";
+        esc(out, v.exe);
+    }
+    if (!v.user.empty()) {
+        if (!first) out += ',';
+        first = false;
+        out += '\n';
+        pad(out, depth + 1);
+        esc(out, "user");
+        out += ": ";
+        esc(out, v.user);
+    }
+    if (v.pid != 0) {
+        if (!first) out += ',';
+        first = false;
+        out += '\n';
+        pad(out, depth + 1);
+        esc(out, "pid");
+        out += ": ";
+        num(out, v.pid);
+    }
+    if (v.uid != 0) {
+        if (!first) out += ',';
+        first = false;
+        out += '\n';
+        pad(out, depth + 1);
+        esc(out, "uid");
+        out += ": ";
+        num(out, v.uid);
+    }
+    if (v.gid != 0) {
+        if (!first) out += ',';
+        first = false;
+        out += '\n';
+        pad(out, depth + 1);
+        esc(out, "gid");
+        out += ": ";
+        num(out, v.gid);
+    }
+    if (!first) { out += '\n'; pad(out, depth); }
+    out += '}';
+}
+
+inline void enc_source_record(std::string& out, const SourceRecord& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "source_id");
+    out += ": ";
+    esc(out, v.source_id);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "record");
+    out += ": ";
+    enc_record(out, v.record, depth + 1);
+    if (v.producer.has_value()) {
+        out += ',';
+        out += '\n';
+        pad(out, depth + 1);
+        esc(out, "producer");
+        out += ": ";
+        enc_producer_claim(out, *v.producer, depth + 1);
+    }
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_source_page(std::string& out, const SourcePage& v, int depth) {
+    if (wire_name(v.outcome).empty()) throw Refusal("bad_enum", 0);
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "outcome");
+    out += ": ";
+    esc(out, std::string(wire_name(v.outcome)));
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "records");
+    out += ": ";
+    enc_list<SourceRecord>(out, v.records, depth + 1, enc_source_record);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "next");
+    out += ": ";
+    esc(out, v.next);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "at_end");
+    out += ": ";
+    out += v.at_end ? "true" : "false";
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
 inline void enc_oa_sink_write_arguments(std::string& out, const OASinkWriteArguments& v, int depth) {
     out += '{';
     out += '\n';
@@ -578,6 +1143,121 @@ inline void enc_oa_history_observer_observe_arguments(std::string& out, const OA
     esc(out, "wait_ms");
     out += ": ";
     num(out, v.wait_ms);
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_oa_application_history_reader_read_arguments(std::string& out, const OAApplicationHistoryReaderReadArguments& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "target");
+    out += ": ";
+    enc_application_log_target(out, v.target, depth + 1);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "cursor");
+    out += ": ";
+    esc(out, v.cursor);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "max_records");
+    out += ": ";
+    num(out, v.max_records);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "max_bytes");
+    out += ": ";
+    num(out, v.max_bytes);
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_oa_application_history_observer_observe_arguments(std::string& out, const OAApplicationHistoryObserverObserveArguments& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "target");
+    out += ": ";
+    enc_application_log_target(out, v.target, depth + 1);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "cursor");
+    out += ": ";
+    esc(out, v.cursor);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "max_records");
+    out += ": ";
+    num(out, v.max_records);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "max_bytes");
+    out += ": ";
+    num(out, v.max_bytes);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "wait_ms");
+    out += ": ";
+    num(out, v.wait_ms);
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_oa_source_reader_sources_arguments(std::string& out, const OASourceReaderSourcesArguments& v, int depth) {
+    (void)v;
+    (void)depth;
+    out += '{';
+    out += '}';
+}
+
+inline void enc_oa_source_reader_read_arguments(std::string& out, const OASourceReaderReadArguments& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "source_id");
+    out += ": ";
+    esc(out, v.source_id);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "cursor");
+    out += ": ";
+    esc(out, v.cursor);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "max_records");
+    out += ": ";
+    num(out, v.max_records);
+    out += ',';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "max_bytes");
+    out += ": ";
+    num(out, v.max_bytes);
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_oa_source_reader_start_at_end_arguments(std::string& out, const OASourceReaderStartAtEndArguments& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "source_id");
+    out += ": ";
+    esc(out, v.source_id);
     out += '\n';
     pad(out, depth);
     out += '}';
@@ -691,6 +1371,66 @@ inline void enc_oa_history_observer_observe_result(std::string& out, const OAHis
     out += '}';
 }
 
+inline void enc_oa_application_history_reader_read_result(std::string& out, const OAApplicationHistoryReaderReadResult& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "value");
+    out += ": ";
+    enc_application_log_page(out, v.value, depth + 1);
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_oa_application_history_observer_observe_result(std::string& out, const OAApplicationHistoryObserverObserveResult& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "value");
+    out += ": ";
+    enc_application_log_page(out, v.value, depth + 1);
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_oa_source_reader_sources_result(std::string& out, const OASourceReaderSourcesResult& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "value");
+    out += ": ";
+    enc_source_catalog(out, v.value, depth + 1);
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_oa_source_reader_read_result(std::string& out, const OASourceReaderReadResult& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "value");
+    out += ": ";
+    enc_source_page(out, v.value, depth + 1);
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
+inline void enc_oa_source_reader_start_at_end_result(std::string& out, const OASourceReaderStartAtEndResult& v, int depth) {
+    out += '{';
+    out += '\n';
+    pad(out, depth + 1);
+    esc(out, "value");
+    out += ": ";
+    enc_source_page(out, v.value, depth + 1);
+    out += '\n';
+    pad(out, depth);
+    out += '}';
+}
+
 inline constexpr int kDepthLimit = 64;
 inline constexpr std::size_t kI64Digits = 19;
 
@@ -739,6 +1479,7 @@ struct Reader {
     std::string_view buf;
     std::size_t pos = 0;
     int depth = 0;
+ int limit = kDepthLimit;
 
     [[noreturn]] void refuse(const char* word) const { throw Refusal(word, pos); }
 
@@ -753,7 +1494,7 @@ struct Reader {
     }
 
     void enter() {
-        if (++depth > kDepthLimit) refuse("depth_exceeded");
+        if (++depth > limit) refuse("depth_exceeded");
     }
 
     std::string str() {
@@ -1119,14 +1860,32 @@ inline std::string write_timestamp(std::string_view s) {
 inline Attestation decode_attestation(Reader& r);
 inline Record decode_record(Reader& r);
 inline Page decode_page(Reader& r);
+inline ApplicationLogTarget decode_application_log_target(Reader& r);
+inline ApplicationLogResource decode_application_log_resource(Reader& r);
+inline ApplicationLogPage decode_application_log_page(Reader& r);
+inline SourceDescriptor decode_source_descriptor(Reader& r);
+inline SourceCatalog decode_source_catalog(Reader& r);
+inline ProducerClaim decode_producer_claim(Reader& r);
+inline SourceRecord decode_source_record(Reader& r);
+inline SourcePage decode_source_page(Reader& r);
 inline OASinkWriteArguments decode_oa_sink_write_arguments(Reader& r);
 inline OAHistoryReaderReadArguments decode_oa_history_reader_read_arguments(Reader& r);
 inline OAHistoryObserverObserveArguments decode_oa_history_observer_observe_arguments(Reader& r);
+inline OAApplicationHistoryReaderReadArguments decode_oa_application_history_reader_read_arguments(Reader& r);
+inline OAApplicationHistoryObserverObserveArguments decode_oa_application_history_observer_observe_arguments(Reader& r);
+inline OASourceReaderSourcesArguments decode_oa_source_reader_sources_arguments(Reader& r);
+inline OASourceReaderReadArguments decode_oa_source_reader_read_arguments(Reader& r);
+inline OASourceReaderStartAtEndArguments decode_oa_source_reader_start_at_end_arguments(Reader& r);
 inline OAServiceFrame decode_oa_service_frame(Reader& r);
 inline OAServiceReply decode_oa_service_reply(Reader& r);
 inline OAServiceError decode_oa_service_error(Reader& r);
 inline OAHistoryReaderReadResult decode_oa_history_reader_read_result(Reader& r);
 inline OAHistoryObserverObserveResult decode_oa_history_observer_observe_result(Reader& r);
+inline OAApplicationHistoryReaderReadResult decode_oa_application_history_reader_read_result(Reader& r);
+inline OAApplicationHistoryObserverObserveResult decode_oa_application_history_observer_observe_result(Reader& r);
+inline OASourceReaderSourcesResult decode_oa_source_reader_sources_result(Reader& r);
+inline OASourceReaderReadResult decode_oa_source_reader_read_result(Reader& r);
+inline OASourceReaderStartAtEndResult decode_oa_source_reader_start_at_end_result(Reader& r);
 
 inline Attestation decode_attestation(Reader& r) {
     if (r.at() != '{') r.refuse("wrong_type");
@@ -1320,6 +2079,391 @@ inline Page decode_page(Reader& r) {
     return v;
 }
 
+inline ApplicationLogTarget decode_application_log_target(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    ApplicationLogTarget v;
+    std::optional<std::string> wire_selection;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "selection") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                wire_selection = r.str();
+            } else if (key == "program") {
+                if (seen & 2u) r.refuse("duplicate_field");
+                seen |= 2u;
+                v.program = r.str();
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 1u) != 1u) r.refuse("missing_field");
+    if (wire_selection) {
+        const auto parsed = parse_application_log_selection(*wire_selection);
+        if (!parsed) r.refuse("bad_enum");
+        v.selection = *parsed;
+    }
+    return v;
+}
+
+inline ApplicationLogResource decode_application_log_resource(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    ApplicationLogResource v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "program") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.program = r.str();
+            } else if (key == "captured_file_key") {
+                if (seen & 2u) r.refuse("duplicate_field");
+                seen |= 2u;
+                v.captured_file_key = r.str();
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 1u) != 1u) r.refuse("missing_field");
+    return v;
+}
+
+inline ApplicationLogPage decode_application_log_page(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    ApplicationLogPage v;
+    std::optional<std::string> wire_outcome;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "outcome") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                wire_outcome = r.str();
+            } else if (key == "records") {
+                if (seen & 2u) r.refuse("duplicate_field");
+                seen |= 2u;
+                v.records = decode_list<Record>(r, decode_record);
+            } else if (key == "next") {
+                if (seen & 4u) r.refuse("duplicate_field");
+                seen |= 4u;
+                v.next = r.str();
+            } else if (key == "at_end") {
+                if (seen & 8u) r.refuse("duplicate_field");
+                seen |= 8u;
+                v.at_end = r.boolean();
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 15u) != 15u) r.refuse("missing_field");
+    if (wire_outcome) {
+        const auto parsed = parse_history_page_outcome(*wire_outcome);
+        if (!parsed) r.refuse("bad_enum");
+        v.outcome = *parsed;
+    }
+    return v;
+}
+
+inline SourceDescriptor decode_source_descriptor(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    SourceDescriptor v;
+    std::optional<std::string> wire_availability;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "id") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.id = r.str();
+            } else if (key == "availability") {
+                if (seen & 2u) r.refuse("duplicate_field");
+                seen |= 2u;
+                wire_availability = r.str();
+            } else if (key == "limitations") {
+                if (seen & 4u) r.refuse("duplicate_field");
+                seen |= 4u;
+                v.limitations = r.str_list();
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 7u) != 7u) r.refuse("missing_field");
+    if (wire_availability) {
+        const auto parsed = parse_source_availability(*wire_availability);
+        if (!parsed) r.refuse("bad_enum");
+        v.availability = *parsed;
+    }
+    return v;
+}
+
+inline SourceCatalog decode_source_catalog(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    SourceCatalog v;
+    std::optional<std::string> wire_outcome;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "sources") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.sources = decode_list<SourceDescriptor>(r, decode_source_descriptor);
+            } else if (key == "outcome") {
+                if (seen & 2u) r.refuse("duplicate_field");
+                seen |= 2u;
+                wire_outcome = r.str();
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 3u) != 3u) r.refuse("missing_field");
+    if (wire_outcome) {
+        const auto parsed = parse_source_catalog_outcome(*wire_outcome);
+        if (!parsed) r.refuse("bad_enum");
+        v.outcome = *parsed;
+    }
+    return v;
+}
+
+inline ProducerClaim decode_producer_claim(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    ProducerClaim v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "provider") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.provider = r.str();
+            } else if (key == "program") {
+                if (seen & 2u) r.refuse("duplicate_field");
+                seen |= 2u;
+                v.program = r.str();
+            } else if (key == "exe") {
+                if (seen & 4u) r.refuse("duplicate_field");
+                seen |= 4u;
+                v.exe = r.str();
+            } else if (key == "user") {
+                if (seen & 8u) r.refuse("duplicate_field");
+                seen |= 8u;
+                v.user = r.str();
+            } else if (key == "pid") {
+                if (seen & 16u) r.refuse("duplicate_field");
+                seen |= 16u;
+                v.pid = r.integer(INT64_MIN, INT64_MAX);
+            } else if (key == "uid") {
+                if (seen & 32u) r.refuse("duplicate_field");
+                seen |= 32u;
+                v.uid = r.integer(INT64_MIN, INT64_MAX);
+            } else if (key == "gid") {
+                if (seen & 64u) r.refuse("duplicate_field");
+                seen |= 64u;
+                v.gid = r.integer(INT64_MIN, INT64_MAX);
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    return v;
+}
+
+inline SourceRecord decode_source_record(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    SourceRecord v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "source_id") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.source_id = r.str();
+            } else if (key == "record") {
+                if (seen & 2u) r.refuse("duplicate_field");
+                seen |= 2u;
+                v.record = decode_record(r);
+            } else if (key == "producer") {
+                if (seen & 4u) r.refuse("duplicate_field");
+                seen |= 4u;
+                v.producer = decode_producer_claim(r);
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 3u) != 3u) r.refuse("missing_field");
+    return v;
+}
+
+inline SourcePage decode_source_page(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    SourcePage v;
+    std::optional<std::string> wire_outcome;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "outcome") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                wire_outcome = r.str();
+            } else if (key == "records") {
+                if (seen & 2u) r.refuse("duplicate_field");
+                seen |= 2u;
+                v.records = decode_list<SourceRecord>(r, decode_source_record);
+            } else if (key == "next") {
+                if (seen & 4u) r.refuse("duplicate_field");
+                seen |= 4u;
+                v.next = r.str();
+            } else if (key == "at_end") {
+                if (seen & 8u) r.refuse("duplicate_field");
+                seen |= 8u;
+                v.at_end = r.boolean();
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 15u) != 15u) r.refuse("missing_field");
+    if (wire_outcome) {
+        const auto parsed = parse_history_page_outcome(*wire_outcome);
+        if (!parsed) r.refuse("bad_enum");
+        v.outcome = *parsed;
+    }
+    return v;
+}
+
 inline OASinkWriteArguments decode_oa_sink_write_arguments(Reader& r) {
     if (r.at() != '{') r.refuse("wrong_type");
     r.enter();
@@ -1442,6 +2586,216 @@ inline OAHistoryObserverObserveArguments decode_oa_history_observer_observe_argu
     ++r.pos;
     --r.depth;
     if ((seen & 15u) != 15u) r.refuse("missing_field");
+    return v;
+}
+
+inline OAApplicationHistoryReaderReadArguments decode_oa_application_history_reader_read_arguments(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    OAApplicationHistoryReaderReadArguments v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "target") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.target = decode_application_log_target(r);
+            } else if (key == "cursor") {
+                if (seen & 2u) r.refuse("duplicate_field");
+                seen |= 2u;
+                v.cursor = r.str();
+            } else if (key == "max_records") {
+                if (seen & 4u) r.refuse("duplicate_field");
+                seen |= 4u;
+                v.max_records = r.integer(INT64_MIN, INT64_MAX);
+            } else if (key == "max_bytes") {
+                if (seen & 8u) r.refuse("duplicate_field");
+                seen |= 8u;
+                v.max_bytes = r.integer(INT64_MIN, INT64_MAX);
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 15u) != 15u) r.refuse("missing_field");
+    return v;
+}
+
+inline OAApplicationHistoryObserverObserveArguments decode_oa_application_history_observer_observe_arguments(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    OAApplicationHistoryObserverObserveArguments v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "target") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.target = decode_application_log_target(r);
+            } else if (key == "cursor") {
+                if (seen & 2u) r.refuse("duplicate_field");
+                seen |= 2u;
+                v.cursor = r.str();
+            } else if (key == "max_records") {
+                if (seen & 4u) r.refuse("duplicate_field");
+                seen |= 4u;
+                v.max_records = r.integer(INT64_MIN, INT64_MAX);
+            } else if (key == "max_bytes") {
+                if (seen & 8u) r.refuse("duplicate_field");
+                seen |= 8u;
+                v.max_bytes = r.integer(INT64_MIN, INT64_MAX);
+            } else if (key == "wait_ms") {
+                if (seen & 16u) r.refuse("duplicate_field");
+                seen |= 16u;
+                v.wait_ms = r.integer(INT64_MIN, INT64_MAX);
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 31u) != 31u) r.refuse("missing_field");
+    return v;
+}
+
+inline OASourceReaderSourcesArguments decode_oa_source_reader_sources_arguments(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    OASourceReaderSourcesArguments v;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (false) {
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    return v;
+}
+
+inline OASourceReaderReadArguments decode_oa_source_reader_read_arguments(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    OASourceReaderReadArguments v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "source_id") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.source_id = r.str();
+            } else if (key == "cursor") {
+                if (seen & 2u) r.refuse("duplicate_field");
+                seen |= 2u;
+                v.cursor = r.str();
+            } else if (key == "max_records") {
+                if (seen & 4u) r.refuse("duplicate_field");
+                seen |= 4u;
+                v.max_records = r.integer(INT64_MIN, INT64_MAX);
+            } else if (key == "max_bytes") {
+                if (seen & 8u) r.refuse("duplicate_field");
+                seen |= 8u;
+                v.max_bytes = r.integer(INT64_MIN, INT64_MAX);
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 15u) != 15u) r.refuse("missing_field");
+    return v;
+}
+
+inline OASourceReaderStartAtEndArguments decode_oa_source_reader_start_at_end_arguments(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    OASourceReaderStartAtEndArguments v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "source_id") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.source_id = r.str();
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 1u) != 1u) r.refuse("missing_field");
     return v;
 }
 
@@ -1652,6 +3006,181 @@ inline OAHistoryObserverObserveResult decode_oa_history_observer_observe_result(
     return v;
 }
 
+inline OAApplicationHistoryReaderReadResult decode_oa_application_history_reader_read_result(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    OAApplicationHistoryReaderReadResult v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "value") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.value = decode_application_log_page(r);
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 1u) != 1u) r.refuse("missing_field");
+    return v;
+}
+
+inline OAApplicationHistoryObserverObserveResult decode_oa_application_history_observer_observe_result(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    OAApplicationHistoryObserverObserveResult v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "value") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.value = decode_application_log_page(r);
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 1u) != 1u) r.refuse("missing_field");
+    return v;
+}
+
+inline OASourceReaderSourcesResult decode_oa_source_reader_sources_result(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    OASourceReaderSourcesResult v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "value") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.value = decode_source_catalog(r);
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 1u) != 1u) r.refuse("missing_field");
+    return v;
+}
+
+inline OASourceReaderReadResult decode_oa_source_reader_read_result(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    OASourceReaderReadResult v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "value") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.value = decode_source_page(r);
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 1u) != 1u) r.refuse("missing_field");
+    return v;
+}
+
+inline OASourceReaderStartAtEndResult decode_oa_source_reader_start_at_end_result(Reader& r) {
+    if (r.at() != '{') r.refuse("wrong_type");
+    r.enter();
+    ++r.pos;
+    OASourceReaderStartAtEndResult v;
+    std::uint32_t seen = 0;
+    r.skip_ws();
+    if (r.at() != '}') {
+        for (;;) {
+            r.skip_ws();
+            if (r.at() != '"') r.refuse("malformed");
+            const std::string key = r.str();
+            r.skip_ws();
+            if (r.at() != ':') r.refuse("malformed");
+            ++r.pos;
+            r.skip_ws();
+            if (key == "value") {
+                if (seen & 1u) r.refuse("duplicate_field");
+                seen |= 1u;
+                v.value = decode_source_page(r);
+            } else {
+                r.refuse("unknown_field");
+            }
+            r.skip_ws();
+            if (r.at() != ',') break;
+            ++r.pos;
+        }
+    }
+    if (r.at() != '}') r.refuse("malformed");
+    ++r.pos;
+    --r.depth;
+    if ((seen & 1u) != 1u) r.refuse("missing_field");
+    return v;
+}
+
 }  // namespace detail
 
 inline std::string encode(const Record& v) {
@@ -1847,5 +3376,265 @@ private:
 void* ready_self_=nullptr;
 bool(*ready_hook_)(void*,std::string&)=nullptr;
 };
+struct ApplicationHistoryReader{virtual ~ApplicationHistoryReader()=default;
+virtual ApplicationLogPage read(const ApplicationLogTarget& target,const std::string& cursor,const std::int64_t& max_records,const std::int64_t& max_bytes)=0;
+};
+template<class Transport>struct ApplicationHistoryReaderClient:ApplicationHistoryReader{Transport& transport_;explicit ApplicationHistoryReaderClient(Transport&t):transport_(t){}
+ApplicationLogPage read(const ApplicationLogTarget& target,const std::string& cursor,const std::int64_t& max_records,const std::int64_t& max_bytes)override{detail::OAApplicationHistoryReaderReadArguments args;
+args.target=target;
+args.cursor=cursor;
+args.max_records=max_records;
+args.max_bytes=max_bytes;
+detail::OAServiceFrame v;v.version=1;v.service="abstraction.logging/reader@2";v.method="Read";detail::enc_oa_application_history_reader_read_arguments(v.arguments,args,1);std::string frame;detail::enc_oa_service_frame(frame,v,0);detail::service_payload(frame);
+auto response=transport_.exchange_frame(frame);auto payload=detail::service_response(response,v.service,v.method);detail::Reader r{payload};r.depth=1;r.skip_ws();auto result=detail::decode_oa_application_history_reader_read_result(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");
+return result.value;
+}
+};
+struct ApplicationHistoryReaderService{inline static constexpr std::string_view kWireName="abstraction.logging/reader@2";inline static constexpr std::string_view kCapability="abstraction.logging";template<class Transport>using Client=ApplicationHistoryReaderClient<Transport>;};
+struct ApplicationHistoryReaderDispatcher:FrameWriter,FrameExchanger{ApplicationHistoryReader&handler;explicit ApplicationHistoryReaderDispatcher(ApplicationHistoryReader&h):handler(h){}
+// A handler whose own type has ready(), returning a pair of bool and std::string, reports its readiness through describe_service.
+template<class H,class=decltype(static_cast<ApplicationHistoryReader&>(*static_cast<H*>(nullptr)))>explicit ApplicationHistoryReaderDispatcher(H&h):handler(h),ready_self_(&h),ready_hook_(detail::ready_hook<H>(0)){}
+// This dispatcher's service as abstraction.facade/endpoint@1 Describe lists it.
+DescribedService describe_service()const{DescribedService s{"abstraction.logging/reader@2",true,std::string()};if(ready_hook_){s.ready=ready_hook_(ready_self_,s.why);if(s.ready)s.why.clear();}return s;}
+void write_frame(std::string_view frame)override{auto v=detail::service_payload(frame);if(v.service!="abstraction.logging/reader@2")throw DispatchError("unknown_service");
+if(v.method=="Read"){
+throw DispatchError("wrong_mode");}
+throw DispatchError("unknown_method");}
+std::string exchange_frame(std::string_view frame)override{auto v=detail::service_payload(frame);if(v.service==kEndpointContract)return describe_endpoint(frame,std::string(),std::string(),*this);if(v.service!="abstraction.logging/reader@2"){ServiceError e("unknown_service","");return detail::service_reply(v,"",&e);}
+try{
+if(v.method=="Read"){
+detail::Reader r{v.arguments};r.depth=1;r.skip_ws();auto args=detail::decode_oa_application_history_reader_read_arguments(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");auto payload=invoke_read(args);return detail::service_reply(v,payload);}
+throw ServiceError("unknown_method","");}catch(const ServiceError&e){return detail::service_reply(v,"",&e);}catch(const Refusal&e){ServiceError error(e.word,"");return detail::service_reply(v,"",&error);}
+}
+private:
+Raw invoke_read(const detail::OAApplicationHistoryReaderReadArguments&args){
+ApplicationLogPage result{};
+try{
+result=handler.read(args.target,args.cursor,args.max_records,args.max_bytes);
+}catch(const ServiceError&){throw;}catch(...){throw ServiceError("handler_error","handler failed");}
+try{
+detail::OAApplicationHistoryReaderReadResult value;
+value.value=result;
+Raw payload;detail::enc_oa_application_history_reader_read_result(payload,value,1);detail::Reader r{payload};r.depth=1;r.skip_ws();detail::decode_oa_application_history_reader_read_result(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");return payload;
+}catch(...){throw ServiceError("invalid_result","");}
+}
+private:
+void* ready_self_=nullptr;
+bool(*ready_hook_)(void*,std::string&)=nullptr;
+};
+struct ApplicationHistoryObserver{virtual ~ApplicationHistoryObserver()=default;
+virtual ApplicationLogPage observe(const ApplicationLogTarget& target,const std::string& cursor,const std::int64_t& max_records,const std::int64_t& max_bytes,const std::int64_t& wait_ms)=0;
+};
+template<class Transport>struct ApplicationHistoryObserverClient:ApplicationHistoryObserver{Transport& transport_;explicit ApplicationHistoryObserverClient(Transport&t):transport_(t){}
+ApplicationLogPage observe(const ApplicationLogTarget& target,const std::string& cursor,const std::int64_t& max_records,const std::int64_t& max_bytes,const std::int64_t& wait_ms)override{detail::OAApplicationHistoryObserverObserveArguments args;
+args.target=target;
+args.cursor=cursor;
+args.max_records=max_records;
+args.max_bytes=max_bytes;
+args.wait_ms=wait_ms;
+detail::OAServiceFrame v;v.version=1;v.service="abstraction.logging/observer@2";v.method="Observe";detail::enc_oa_application_history_observer_observe_arguments(v.arguments,args,1);std::string frame;detail::enc_oa_service_frame(frame,v,0);detail::service_payload(frame);
+auto response=transport_.exchange_frame(frame);auto payload=detail::service_response(response,v.service,v.method);detail::Reader r{payload};r.depth=1;r.skip_ws();auto result=detail::decode_oa_application_history_observer_observe_result(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");
+return result.value;
+}
+};
+struct ApplicationHistoryObserverService{inline static constexpr std::string_view kWireName="abstraction.logging/observer@2";inline static constexpr std::string_view kCapability="abstraction.logging";template<class Transport>using Client=ApplicationHistoryObserverClient<Transport>;};
+struct ApplicationHistoryObserverDispatcher:FrameWriter,FrameExchanger{ApplicationHistoryObserver&handler;explicit ApplicationHistoryObserverDispatcher(ApplicationHistoryObserver&h):handler(h){}
+// A handler whose own type has ready(), returning a pair of bool and std::string, reports its readiness through describe_service.
+template<class H,class=decltype(static_cast<ApplicationHistoryObserver&>(*static_cast<H*>(nullptr)))>explicit ApplicationHistoryObserverDispatcher(H&h):handler(h),ready_self_(&h),ready_hook_(detail::ready_hook<H>(0)){}
+// This dispatcher's service as abstraction.facade/endpoint@1 Describe lists it.
+DescribedService describe_service()const{DescribedService s{"abstraction.logging/observer@2",true,std::string()};if(ready_hook_){s.ready=ready_hook_(ready_self_,s.why);if(s.ready)s.why.clear();}return s;}
+void write_frame(std::string_view frame)override{auto v=detail::service_payload(frame);if(v.service!="abstraction.logging/observer@2")throw DispatchError("unknown_service");
+if(v.method=="Observe"){
+throw DispatchError("wrong_mode");}
+throw DispatchError("unknown_method");}
+std::string exchange_frame(std::string_view frame)override{auto v=detail::service_payload(frame);if(v.service==kEndpointContract)return describe_endpoint(frame,std::string(),std::string(),*this);if(v.service!="abstraction.logging/observer@2"){ServiceError e("unknown_service","");return detail::service_reply(v,"",&e);}
+try{
+if(v.method=="Observe"){
+detail::Reader r{v.arguments};r.depth=1;r.skip_ws();auto args=detail::decode_oa_application_history_observer_observe_arguments(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");auto payload=invoke_observe(args);return detail::service_reply(v,payload);}
+throw ServiceError("unknown_method","");}catch(const ServiceError&e){return detail::service_reply(v,"",&e);}catch(const Refusal&e){ServiceError error(e.word,"");return detail::service_reply(v,"",&error);}
+}
+private:
+Raw invoke_observe(const detail::OAApplicationHistoryObserverObserveArguments&args){
+ApplicationLogPage result{};
+try{
+result=handler.observe(args.target,args.cursor,args.max_records,args.max_bytes,args.wait_ms);
+}catch(const ServiceError&){throw;}catch(...){throw ServiceError("handler_error","handler failed");}
+try{
+detail::OAApplicationHistoryObserverObserveResult value;
+value.value=result;
+Raw payload;detail::enc_oa_application_history_observer_observe_result(payload,value,1);detail::Reader r{payload};r.depth=1;r.skip_ws();detail::decode_oa_application_history_observer_observe_result(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");return payload;
+}catch(...){throw ServiceError("invalid_result","");}
+}
+private:
+void* ready_self_=nullptr;
+bool(*ready_hook_)(void*,std::string&)=nullptr;
+};
+struct SourceReader{virtual ~SourceReader()=default;
+virtual SourceCatalog sources()=0;
+virtual SourcePage read(const std::string& source_id,const std::string& cursor,const std::int64_t& max_records,const std::int64_t& max_bytes)=0;
+virtual SourcePage start_at_end(const std::string& source_id)=0;
+};
+template<class Transport>struct SourceReaderClient:SourceReader{Transport& transport_;explicit SourceReaderClient(Transport&t):transport_(t){}
+SourceCatalog sources()override{detail::OASourceReaderSourcesArguments args;
+detail::OAServiceFrame v;v.version=1;v.service="abstraction.logging/source-reader@1";v.method="Sources";detail::enc_oa_source_reader_sources_arguments(v.arguments,args,1);std::string frame;detail::enc_oa_service_frame(frame,v,0);detail::service_payload(frame);
+auto response=transport_.exchange_frame(frame);auto payload=detail::service_response(response,v.service,v.method);detail::Reader r{payload};r.depth=1;r.skip_ws();auto result=detail::decode_oa_source_reader_sources_result(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");
+return result.value;
+}
+SourcePage read(const std::string& source_id,const std::string& cursor,const std::int64_t& max_records,const std::int64_t& max_bytes)override{detail::OASourceReaderReadArguments args;
+args.source_id=source_id;
+args.cursor=cursor;
+args.max_records=max_records;
+args.max_bytes=max_bytes;
+detail::OAServiceFrame v;v.version=1;v.service="abstraction.logging/source-reader@1";v.method="Read";detail::enc_oa_source_reader_read_arguments(v.arguments,args,1);std::string frame;detail::enc_oa_service_frame(frame,v,0);detail::service_payload(frame);
+auto response=transport_.exchange_frame(frame);auto payload=detail::service_response(response,v.service,v.method);detail::Reader r{payload};r.depth=1;r.skip_ws();auto result=detail::decode_oa_source_reader_read_result(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");
+return result.value;
+}
+SourcePage start_at_end(const std::string& source_id)override{detail::OASourceReaderStartAtEndArguments args;
+args.source_id=source_id;
+detail::OAServiceFrame v;v.version=1;v.service="abstraction.logging/source-reader@1";v.method="StartAtEnd";detail::enc_oa_source_reader_start_at_end_arguments(v.arguments,args,1);std::string frame;detail::enc_oa_service_frame(frame,v,0);detail::service_payload(frame);
+auto response=transport_.exchange_frame(frame);auto payload=detail::service_response(response,v.service,v.method);detail::Reader r{payload};r.depth=1;r.skip_ws();auto result=detail::decode_oa_source_reader_start_at_end_result(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");
+return result.value;
+}
+};
+struct SourceReaderService{inline static constexpr std::string_view kWireName="abstraction.logging/source-reader@1";inline static constexpr std::string_view kCapability="abstraction.logging";template<class Transport>using Client=SourceReaderClient<Transport>;};
+struct SourceReaderDispatcher:FrameWriter,FrameExchanger{SourceReader&handler;explicit SourceReaderDispatcher(SourceReader&h):handler(h){}
+// A handler whose own type has ready(), returning a pair of bool and std::string, reports its readiness through describe_service.
+template<class H,class=decltype(static_cast<SourceReader&>(*static_cast<H*>(nullptr)))>explicit SourceReaderDispatcher(H&h):handler(h),ready_self_(&h),ready_hook_(detail::ready_hook<H>(0)){}
+// This dispatcher's service as abstraction.facade/endpoint@1 Describe lists it.
+DescribedService describe_service()const{DescribedService s{"abstraction.logging/source-reader@1",true,std::string()};if(ready_hook_){s.ready=ready_hook_(ready_self_,s.why);if(s.ready)s.why.clear();}return s;}
+void write_frame(std::string_view frame)override{auto v=detail::service_payload(frame);if(v.service!="abstraction.logging/source-reader@1")throw DispatchError("unknown_service");
+if(v.method=="Sources"){
+throw DispatchError("wrong_mode");}
+if(v.method=="Read"){
+throw DispatchError("wrong_mode");}
+if(v.method=="StartAtEnd"){
+throw DispatchError("wrong_mode");}
+throw DispatchError("unknown_method");}
+std::string exchange_frame(std::string_view frame)override{auto v=detail::service_payload(frame);if(v.service==kEndpointContract)return describe_endpoint(frame,std::string(),std::string(),*this);if(v.service!="abstraction.logging/source-reader@1"){ServiceError e("unknown_service","");return detail::service_reply(v,"",&e);}
+try{
+if(v.method=="Sources"){
+detail::Reader r{v.arguments};r.depth=1;r.skip_ws();auto args=detail::decode_oa_source_reader_sources_arguments(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");auto payload=invoke_sources(args);return detail::service_reply(v,payload);}
+if(v.method=="Read"){
+detail::Reader r{v.arguments};r.depth=1;r.skip_ws();auto args=detail::decode_oa_source_reader_read_arguments(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");auto payload=invoke_read(args);return detail::service_reply(v,payload);}
+if(v.method=="StartAtEnd"){
+detail::Reader r{v.arguments};r.depth=1;r.skip_ws();auto args=detail::decode_oa_source_reader_start_at_end_arguments(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");auto payload=invoke_start_at_end(args);return detail::service_reply(v,payload);}
+throw ServiceError("unknown_method","");}catch(const ServiceError&e){return detail::service_reply(v,"",&e);}catch(const Refusal&e){ServiceError error(e.word,"");return detail::service_reply(v,"",&error);}
+}
+private:
+Raw invoke_sources(const detail::OASourceReaderSourcesArguments&args){
+(void)args;
+SourceCatalog result{};
+try{
+result=handler.sources();
+}catch(const ServiceError&){throw;}catch(...){throw ServiceError("handler_error","handler failed");}
+try{
+detail::OASourceReaderSourcesResult value;
+value.value=result;
+Raw payload;detail::enc_oa_source_reader_sources_result(payload,value,1);detail::Reader r{payload};r.depth=1;r.skip_ws();detail::decode_oa_source_reader_sources_result(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");return payload;
+}catch(...){throw ServiceError("invalid_result","");}
+}
+Raw invoke_read(const detail::OASourceReaderReadArguments&args){
+SourcePage result{};
+try{
+result=handler.read(args.source_id,args.cursor,args.max_records,args.max_bytes);
+}catch(const ServiceError&){throw;}catch(...){throw ServiceError("handler_error","handler failed");}
+try{
+detail::OASourceReaderReadResult value;
+value.value=result;
+Raw payload;detail::enc_oa_source_reader_read_result(payload,value,1);detail::Reader r{payload};r.depth=1;r.skip_ws();detail::decode_oa_source_reader_read_result(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");return payload;
+}catch(...){throw ServiceError("invalid_result","");}
+}
+Raw invoke_start_at_end(const detail::OASourceReaderStartAtEndArguments&args){
+SourcePage result{};
+try{
+result=handler.start_at_end(args.source_id);
+}catch(const ServiceError&){throw;}catch(...){throw ServiceError("handler_error","handler failed");}
+try{
+detail::OASourceReaderStartAtEndResult value;
+value.value=result;
+Raw payload;detail::enc_oa_source_reader_start_at_end_result(payload,value,1);detail::Reader r{payload};r.depth=1;r.skip_ws();detail::decode_oa_source_reader_start_at_end_result(r);r.skip_ws();if(r.pos!=r.buf.size())r.refuse("trailing_bytes");return payload;
+}catch(...){throw ServiceError("invalid_result","");}
+}
+private:
+void* ready_self_=nullptr;
+bool(*ready_hook_)(void*,std::string&)=nullptr;
+};
+
+namespace detail {
+inline Attestation decode_attestation_at(std::string_view in,int depth,int limit,std::size_t& consumed){detail::Reader r{in};if(depth<0||limit<1)r.refuse("depth_exceeded");r.depth=depth;r.limit=limit<detail::kDepthLimit?limit:detail::kDepthLimit;r.skip_ws();auto v=detail::decode_attestation(r);consumed=r.pos;return v;}
+inline std::string encode_attestation_at(const Attestation& v,int depth){detail::Reader r{""};if(depth<0||depth>=detail::kDepthLimit)r.refuse("depth_exceeded");std::string out;detail::enc_attestation(out,v,depth);std::size_t n=0;decode_attestation_at(out,depth,detail::kDepthLimit,n);return out;}
+}  // namespace detail
+inline std::string encode_attestation(const Attestation& v){return detail::encode_attestation_at(v,0)+"\n";}
+inline Attestation decode_attestation(std::string_view in){std::size_t n=0;auto v=detail::decode_attestation_at(in,0,detail::kDepthLimit,n);detail::Reader r{in};r.pos=n;r.skip_ws();if(r.pos!=in.size())r.refuse("trailing_bytes");return v;}
+
+namespace detail {
+inline Record decode_record_at(std::string_view in,int depth,int limit,std::size_t& consumed){detail::Reader r{in};if(depth<0||limit<1)r.refuse("depth_exceeded");r.depth=depth;r.limit=limit<detail::kDepthLimit?limit:detail::kDepthLimit;r.skip_ws();auto v=detail::decode_record(r);consumed=r.pos;return v;}
+inline std::string encode_record_at(const Record& v,int depth){detail::Reader r{""};if(depth<0||depth>=detail::kDepthLimit)r.refuse("depth_exceeded");std::string out;detail::enc_record(out,v,depth);std::size_t n=0;decode_record_at(out,depth,detail::kDepthLimit,n);return out;}
+}  // namespace detail
+inline std::string encode_record(const Record& v){return detail::encode_record_at(v,0)+"\n";}
+inline Record decode_record(std::string_view in){std::size_t n=0;auto v=detail::decode_record_at(in,0,detail::kDepthLimit,n);detail::Reader r{in};r.pos=n;r.skip_ws();if(r.pos!=in.size())r.refuse("trailing_bytes");return v;}
+
+namespace detail {
+inline Page decode_page_at(std::string_view in,int depth,int limit,std::size_t& consumed){detail::Reader r{in};if(depth<0||limit<1)r.refuse("depth_exceeded");r.depth=depth;r.limit=limit<detail::kDepthLimit?limit:detail::kDepthLimit;r.skip_ws();auto v=detail::decode_page(r);consumed=r.pos;return v;}
+inline std::string encode_page_at(const Page& v,int depth){detail::Reader r{""};if(depth<0||depth>=detail::kDepthLimit)r.refuse("depth_exceeded");std::string out;detail::enc_page(out,v,depth);std::size_t n=0;decode_page_at(out,depth,detail::kDepthLimit,n);return out;}
+}  // namespace detail
+inline std::string encode_page(const Page& v){return detail::encode_page_at(v,0)+"\n";}
+inline Page decode_page(std::string_view in){std::size_t n=0;auto v=detail::decode_page_at(in,0,detail::kDepthLimit,n);detail::Reader r{in};r.pos=n;r.skip_ws();if(r.pos!=in.size())r.refuse("trailing_bytes");return v;}
+
+namespace detail {
+inline ApplicationLogTarget decode_application_log_target_at(std::string_view in,int depth,int limit,std::size_t& consumed){detail::Reader r{in};if(depth<0||limit<1)r.refuse("depth_exceeded");r.depth=depth;r.limit=limit<detail::kDepthLimit?limit:detail::kDepthLimit;r.skip_ws();auto v=detail::decode_application_log_target(r);consumed=r.pos;return v;}
+inline std::string encode_application_log_target_at(const ApplicationLogTarget& v,int depth){detail::Reader r{""};if(depth<0||depth>=detail::kDepthLimit)r.refuse("depth_exceeded");std::string out;detail::enc_application_log_target(out,v,depth);std::size_t n=0;decode_application_log_target_at(out,depth,detail::kDepthLimit,n);return out;}
+}  // namespace detail
+inline std::string encode_application_log_target(const ApplicationLogTarget& v){return detail::encode_application_log_target_at(v,0)+"\n";}
+inline ApplicationLogTarget decode_application_log_target(std::string_view in){std::size_t n=0;auto v=detail::decode_application_log_target_at(in,0,detail::kDepthLimit,n);detail::Reader r{in};r.pos=n;r.skip_ws();if(r.pos!=in.size())r.refuse("trailing_bytes");return v;}
+
+namespace detail {
+inline ApplicationLogResource decode_application_log_resource_at(std::string_view in,int depth,int limit,std::size_t& consumed){detail::Reader r{in};if(depth<0||limit<1)r.refuse("depth_exceeded");r.depth=depth;r.limit=limit<detail::kDepthLimit?limit:detail::kDepthLimit;r.skip_ws();auto v=detail::decode_application_log_resource(r);consumed=r.pos;return v;}
+inline std::string encode_application_log_resource_at(const ApplicationLogResource& v,int depth){detail::Reader r{""};if(depth<0||depth>=detail::kDepthLimit)r.refuse("depth_exceeded");std::string out;detail::enc_application_log_resource(out,v,depth);std::size_t n=0;decode_application_log_resource_at(out,depth,detail::kDepthLimit,n);return out;}
+}  // namespace detail
+inline std::string encode_application_log_resource(const ApplicationLogResource& v){return detail::encode_application_log_resource_at(v,0)+"\n";}
+inline ApplicationLogResource decode_application_log_resource(std::string_view in){std::size_t n=0;auto v=detail::decode_application_log_resource_at(in,0,detail::kDepthLimit,n);detail::Reader r{in};r.pos=n;r.skip_ws();if(r.pos!=in.size())r.refuse("trailing_bytes");return v;}
+
+namespace detail {
+inline ApplicationLogPage decode_application_log_page_at(std::string_view in,int depth,int limit,std::size_t& consumed){detail::Reader r{in};if(depth<0||limit<1)r.refuse("depth_exceeded");r.depth=depth;r.limit=limit<detail::kDepthLimit?limit:detail::kDepthLimit;r.skip_ws();auto v=detail::decode_application_log_page(r);consumed=r.pos;return v;}
+inline std::string encode_application_log_page_at(const ApplicationLogPage& v,int depth){detail::Reader r{""};if(depth<0||depth>=detail::kDepthLimit)r.refuse("depth_exceeded");std::string out;detail::enc_application_log_page(out,v,depth);std::size_t n=0;decode_application_log_page_at(out,depth,detail::kDepthLimit,n);return out;}
+}  // namespace detail
+inline std::string encode_application_log_page(const ApplicationLogPage& v){return detail::encode_application_log_page_at(v,0)+"\n";}
+inline ApplicationLogPage decode_application_log_page(std::string_view in){std::size_t n=0;auto v=detail::decode_application_log_page_at(in,0,detail::kDepthLimit,n);detail::Reader r{in};r.pos=n;r.skip_ws();if(r.pos!=in.size())r.refuse("trailing_bytes");return v;}
+
+namespace detail {
+inline SourceDescriptor decode_source_descriptor_at(std::string_view in,int depth,int limit,std::size_t& consumed){detail::Reader r{in};if(depth<0||limit<1)r.refuse("depth_exceeded");r.depth=depth;r.limit=limit<detail::kDepthLimit?limit:detail::kDepthLimit;r.skip_ws();auto v=detail::decode_source_descriptor(r);consumed=r.pos;return v;}
+inline std::string encode_source_descriptor_at(const SourceDescriptor& v,int depth){detail::Reader r{""};if(depth<0||depth>=detail::kDepthLimit)r.refuse("depth_exceeded");std::string out;detail::enc_source_descriptor(out,v,depth);std::size_t n=0;decode_source_descriptor_at(out,depth,detail::kDepthLimit,n);return out;}
+}  // namespace detail
+inline std::string encode_source_descriptor(const SourceDescriptor& v){return detail::encode_source_descriptor_at(v,0)+"\n";}
+inline SourceDescriptor decode_source_descriptor(std::string_view in){std::size_t n=0;auto v=detail::decode_source_descriptor_at(in,0,detail::kDepthLimit,n);detail::Reader r{in};r.pos=n;r.skip_ws();if(r.pos!=in.size())r.refuse("trailing_bytes");return v;}
+
+namespace detail {
+inline SourceCatalog decode_source_catalog_at(std::string_view in,int depth,int limit,std::size_t& consumed){detail::Reader r{in};if(depth<0||limit<1)r.refuse("depth_exceeded");r.depth=depth;r.limit=limit<detail::kDepthLimit?limit:detail::kDepthLimit;r.skip_ws();auto v=detail::decode_source_catalog(r);consumed=r.pos;return v;}
+inline std::string encode_source_catalog_at(const SourceCatalog& v,int depth){detail::Reader r{""};if(depth<0||depth>=detail::kDepthLimit)r.refuse("depth_exceeded");std::string out;detail::enc_source_catalog(out,v,depth);std::size_t n=0;decode_source_catalog_at(out,depth,detail::kDepthLimit,n);return out;}
+}  // namespace detail
+inline std::string encode_source_catalog(const SourceCatalog& v){return detail::encode_source_catalog_at(v,0)+"\n";}
+inline SourceCatalog decode_source_catalog(std::string_view in){std::size_t n=0;auto v=detail::decode_source_catalog_at(in,0,detail::kDepthLimit,n);detail::Reader r{in};r.pos=n;r.skip_ws();if(r.pos!=in.size())r.refuse("trailing_bytes");return v;}
+
+namespace detail {
+inline ProducerClaim decode_producer_claim_at(std::string_view in,int depth,int limit,std::size_t& consumed){detail::Reader r{in};if(depth<0||limit<1)r.refuse("depth_exceeded");r.depth=depth;r.limit=limit<detail::kDepthLimit?limit:detail::kDepthLimit;r.skip_ws();auto v=detail::decode_producer_claim(r);consumed=r.pos;return v;}
+inline std::string encode_producer_claim_at(const ProducerClaim& v,int depth){detail::Reader r{""};if(depth<0||depth>=detail::kDepthLimit)r.refuse("depth_exceeded");std::string out;detail::enc_producer_claim(out,v,depth);std::size_t n=0;decode_producer_claim_at(out,depth,detail::kDepthLimit,n);return out;}
+}  // namespace detail
+inline std::string encode_producer_claim(const ProducerClaim& v){return detail::encode_producer_claim_at(v,0)+"\n";}
+inline ProducerClaim decode_producer_claim(std::string_view in){std::size_t n=0;auto v=detail::decode_producer_claim_at(in,0,detail::kDepthLimit,n);detail::Reader r{in};r.pos=n;r.skip_ws();if(r.pos!=in.size())r.refuse("trailing_bytes");return v;}
+
+namespace detail {
+inline SourceRecord decode_source_record_at(std::string_view in,int depth,int limit,std::size_t& consumed){detail::Reader r{in};if(depth<0||limit<1)r.refuse("depth_exceeded");r.depth=depth;r.limit=limit<detail::kDepthLimit?limit:detail::kDepthLimit;r.skip_ws();auto v=detail::decode_source_record(r);consumed=r.pos;return v;}
+inline std::string encode_source_record_at(const SourceRecord& v,int depth){detail::Reader r{""};if(depth<0||depth>=detail::kDepthLimit)r.refuse("depth_exceeded");std::string out;detail::enc_source_record(out,v,depth);std::size_t n=0;decode_source_record_at(out,depth,detail::kDepthLimit,n);return out;}
+}  // namespace detail
+inline std::string encode_source_record(const SourceRecord& v){return detail::encode_source_record_at(v,0)+"\n";}
+inline SourceRecord decode_source_record(std::string_view in){std::size_t n=0;auto v=detail::decode_source_record_at(in,0,detail::kDepthLimit,n);detail::Reader r{in};r.pos=n;r.skip_ws();if(r.pos!=in.size())r.refuse("trailing_bytes");return v;}
+
+namespace detail {
+inline SourcePage decode_source_page_at(std::string_view in,int depth,int limit,std::size_t& consumed){detail::Reader r{in};if(depth<0||limit<1)r.refuse("depth_exceeded");r.depth=depth;r.limit=limit<detail::kDepthLimit?limit:detail::kDepthLimit;r.skip_ws();auto v=detail::decode_source_page(r);consumed=r.pos;return v;}
+inline std::string encode_source_page_at(const SourcePage& v,int depth){detail::Reader r{""};if(depth<0||depth>=detail::kDepthLimit)r.refuse("depth_exceeded");std::string out;detail::enc_source_page(out,v,depth);std::size_t n=0;decode_source_page_at(out,depth,detail::kDepthLimit,n);return out;}
+}  // namespace detail
+inline std::string encode_source_page(const SourcePage& v){return detail::encode_source_page_at(v,0)+"\n";}
+inline SourcePage decode_source_page(std::string_view in){std::size_t n=0;auto v=detail::decode_source_page_at(in,0,detail::kDepthLimit,n);detail::Reader r{in};r.pos=n;r.skip_ws();if(r.pos!=in.size())r.refuse("trailing_bytes");return v;}
 
 }  // namespace abstraction::logging

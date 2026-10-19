@@ -35,59 +35,152 @@ jobs:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           path: ${{ matrix.language == 'actions' && '.' || github.event.repository.name }}
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
-        if: matrix.language == 'c-cpp'
-        with:
-          repository: openabstractions/abstraction-identity
-          ref: e2adfa0d160026141cdd34ef0eadd14a37d6b5f2
-          path: abstraction-identity
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
-        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
-        with:
-          repository: openabstractions/abstraction-logging
-          ref: 3e1c87e5fe4d575b868d09248f25a563d317f3c4
-          path: abstraction-logging
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
-        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
-        with:
-          repository: openabstractions/abstraction-config
-          ref: cd4de61288681d2df8e8fbe86817c087302a1085
-          path: abstraction-config
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
-        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
-        with:
-          repository: openabstractions/abstraction-router
-          ref: b7919b184d0b53815228c33d442efb54891b35e3
-          path: abstraction-router
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
-        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
-        with:
-          repository: openabstractions/abstraction-model
-          ref: 5ef09c94d9d73ad5dbb359c5c3d48f4e137d9c80
-          path: abstraction-model
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
-        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
-        with:
-          repository: openabstractions/abstraction-job
-          ref: 47004418c8f2d9b8069553a8d0a55ec68945b2f6
-          path: abstraction-job
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
-        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
-        with:
-          repository: openabstractions/abstraction-download
-          ref: b228039e8be7b3d351b63274ac9ced800ca0c5d3
-          path: abstraction-download
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
-        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
-        with:
-          repository: openabstractions/abstraction-storage
-          ref: 0745d81eb1558f16ad00f249695d0ee40e823448
-          path: abstraction-storage
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
-        if: matrix.language == 'go'
+        if: matrix.language == 'c-cpp' || matrix.language == 'go'
         with:
           go-version-file: ${{ github.event.repository.name }}/go/go.mod
           cache: false
+      - name: resolve released sibling versions
+        id: siblings
+        if: matrix.language == 'c-cpp'
+        env:
+          MODULE: ${{ github.event.repository.name }}/go
+          # identity's headers every client compiles against; facade's aggregate includes the rest.
+          SIBLINGS: ${{ github.event.repository.name == 'abstraction-facade' && 'abstraction-identity abstraction-job abstraction-logging abstraction-config abstraction-router abstraction-storage abstraction-model abstraction-download' || 'abstraction-identity' }}
+        run: |
+          # Each sibling at the release tag of the version this repository's
+          # go.mod requires: the dependency is declared once, in the manifest,
+          # and CI builds what an adopter of those versions builds (VISION
+          # 2026-10-08). A repository's C++ sources ship at its Go module's tag:
+          # go/vX for a module under go/, vX for a root module. It runs with the
+          # Go toolchain setup-go installed, which every runner and the stage have.
+          mkdir -p "$RUNNER_TEMP/siblings"
+          cat > "$RUNNER_TEMP/siblings/main.go" <<'GO'
+          package main
+
+          import (
+          	"encoding/json"
+          	"fmt"
+          	"os"
+          	"os/exec"
+          	"regexp"
+          	"strings"
+          )
+
+          func main() {
+          	cmd := exec.Command("go", "mod", "edit", "-json")
+          	cmd.Dir = os.Args[1]
+          	raw, err := cmd.Output()
+          	if err != nil {
+          		fmt.Fprintln(os.Stderr, "FAIL go mod edit -json in", os.Args[1]+":", err)
+          		os.Exit(1)
+          	}
+          	var module struct{ Require []struct{ Path, Version string } }
+          	if err := json.Unmarshal(raw, &module); err != nil {
+          		fmt.Fprintln(os.Stderr, "FAIL", err)
+          		os.Exit(1)
+          	}
+          	sibling := regexp.MustCompile(`^github\.com/openabstractions/(abstraction-[a-z0-9-]+)(?:/(.+))?$`)
+          	pseudo := regexp.MustCompile(`\d{14}-[0-9a-f]{12}$`)
+          	tags, ranks := map[string]string{}, map[string]int{}
+          	for _, r := range module.Require {
+          		m := sibling.FindStringSubmatch(r.Path)
+          		if m == nil {
+          			continue
+          		}
+          		rank, tag := 1, r.Version
+          		if m[2] != "" {
+          			rank, tag = 2, m[2]+"/"+r.Version
+          			if m[2] == "go" {
+          				rank = 0
+          			}
+          		}
+          		if old, ok := ranks[m[1]]; !ok || rank < old {
+          			tags[m[1]], ranks[m[1]] = tag, rank
+          		}
+          	}
+          	var lines, problems []string
+          	for _, name := range os.Args[2:] {
+          		tag := tags[name]
+          		switch {
+          		case tag == "":
+          			problems = append(problems, name+" is not required by "+os.Args[1]+"/go.mod; declare its released version there")
+          		case pseudo.MatchString(tag):
+          			problems = append(problems, name+" "+tag+" is a pseudo-version, not a released tag")
+          		}
+          		lines = append(lines, strings.TrimPrefix(name, "abstraction-")+"="+tag)
+          	}
+          	if len(problems) > 0 {
+          		fmt.Fprintln(os.Stderr, "FAIL "+strings.Join(problems, "\nFAIL "))
+          		os.Exit(1)
+          	}
+          	output, err := os.OpenFile(os.Getenv("GITHUB_OUTPUT"), os.O_APPEND|os.O_WRONLY, 0)
+          	if err != nil {
+          		fmt.Fprintln(os.Stderr, "FAIL", err)
+          		os.Exit(1)
+          	}
+          	defer output.Close()
+          	fmt.Fprint(output, strings.Join(lines, "\n")+"\n")
+          	fmt.Println(strings.Join(lines, "\n"))
+          }
+          GO
+          go run "$RUNNER_TEMP/siblings/main.go" "$MODULE" $SIBLINGS
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        if: matrix.language == 'c-cpp'
+        with:
+          repository: openabstractions/abstraction-identity
+          ref: ${{ steps.siblings.outputs.identity }}
+          path: abstraction-identity
+          persist-credentials: false
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
+        with:
+          repository: openabstractions/abstraction-job
+          ref: ${{ steps.siblings.outputs.job }}
+          path: abstraction-job
+          persist-credentials: false
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
+        with:
+          repository: openabstractions/abstraction-logging
+          ref: ${{ steps.siblings.outputs.logging }}
+          path: abstraction-logging
+          persist-credentials: false
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
+        with:
+          repository: openabstractions/abstraction-config
+          ref: ${{ steps.siblings.outputs.config }}
+          path: abstraction-config
+          persist-credentials: false
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
+        with:
+          repository: openabstractions/abstraction-router
+          ref: ${{ steps.siblings.outputs.router }}
+          path: abstraction-router
+          persist-credentials: false
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
+        with:
+          repository: openabstractions/abstraction-storage
+          ref: ${{ steps.siblings.outputs.storage }}
+          path: abstraction-storage
+          persist-credentials: false
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
+        with:
+          repository: openabstractions/abstraction-model
+          ref: ${{ steps.siblings.outputs.model }}
+          path: abstraction-model
+          persist-credentials: false
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        if: matrix.language == 'c-cpp' && github.event.repository.name == 'abstraction-facade'
+        with:
+          repository: openabstractions/abstraction-download
+          ref: ${{ steps.siblings.outputs.download }}
+          path: abstraction-download
+          persist-credentials: false
       - uses: github/codeql-action/init@311b4ee155dcdab395044f00946f664bd51ff173 # v4
         with:
           languages: ${{ matrix.language }}

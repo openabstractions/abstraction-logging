@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"crypto/cipher"
 	"errors"
 	"fmt"
 	"os/user"
@@ -19,18 +20,23 @@ import (
 )
 
 type Host struct {
-	listener  listen.Listener
-	out       logging.Sink
-	owner     string
-	ctx       context.Context
-	cancel    context.CancelFunc
-	closeOnce sync.Once
-	workers   sync.WaitGroup
-	calls     chan struct{}
-	observers chan struct{}
-	lifecycle sync.Mutex
-	serving   bool
-	history   HistoryPolicy
+	listener          listen.Listener
+	out               logging.Sink
+	owner             string
+	ctx               context.Context
+	cancel            context.CancelFunc
+	closeOnce         sync.Once
+	workers           sync.WaitGroup
+	calls             chan struct{}
+	observers         chan struct{}
+	lifecycle         sync.Mutex
+	serving           bool
+	history           HistoryPolicy
+	sources           *SourceService
+	sourcePolicy      SourcePolicy
+	protected         ProtectedSourceReads
+	applicationPolicy ApplicationHistoryPolicy
+	applicationSeal   cipher.AEAD
 	// OnError reports refused requests and provider failures to the host operator.
 	// It may be called concurrently. It is never a response to a one-way call.
 	OnError func(error)
@@ -55,7 +61,13 @@ func Listen(endpoint string, out logging.Sink) (*Host, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Host{listener: listen.Sessions(l, listen.SessionOptions{MaxSessions: 64}), out: out, owner: owner.Uid, ctx: ctx, cancel: cancel, calls: make(chan struct{}, 64), observers: make(chan struct{}, 32)}, nil
+	seal, err := newApplicationSeal()
+	if err != nil {
+		cancel()
+		l.Close()
+		return nil, err
+	}
+	return &Host{listener: listen.Sessions(l, listen.SessionOptions{MaxSessions: 64}), out: out, owner: owner.Uid, ctx: ctx, cancel: cancel, calls: make(chan struct{}, 64), observers: make(chan struct{}, 32), applicationSeal: seal}, nil
 }
 
 func (h *Host) Close() error {
@@ -65,6 +77,13 @@ func (h *Host) Close() error {
 }
 
 func (h *Host) Serve(ctx context.Context) error {
+	h.lifecycle.Lock()
+	if h.serving || h.ctx.Err() != nil {
+		h.lifecycle.Unlock()
+		return errors.New("logging service: host cannot serve twice or after close")
+	}
+	h.serving = true
+	h.lifecycle.Unlock()
 	stop := context.AfterFunc(ctx, func() { _ = h.Close() })
 	defer stop()
 	defer h.workers.Wait()
@@ -102,18 +121,23 @@ func (h *Host) Serve(ctx context.Context) error {
 			if err == nil {
 				h.lifecycle.Lock()
 				policy := h.history
+				applicationPolicy := h.applicationPolicy
+				sources, sourcePolicy, protected := h.sources, h.sourcePolicy, h.protected
 				h.lifecycle.Unlock()
-				handler := &receiver{out: h.out, call: call, owner: h.owner, observers: h.observers, history: policy, ctx: requestContext}
+				handler := &receiver{out: h.out, call: call, owner: h.owner, observers: h.observers, history: policy, sources: sources, sourcePolicy: sourcePolicy, protected: protected, ctx: requestContext, applicationPolicy: applicationPolicy, applicationSeal: h.applicationSeal}
 				var name string
 				name, err = wire.ServiceName(call.Frame)
 				if err == nil {
 					switch name {
-					case "abstraction.logging/reader@1", "abstraction.logging/observer@1", wire.EndpointContract:
+					case "abstraction.logging/reader@1", "abstraction.logging/observer@1", "abstraction.logging/reader@2", "abstraction.logging/observer@2", "abstraction.logging/source-reader@1", wire.EndpointContract:
 						var reply []byte
 						reply, err = wire.ServeEndpoint(call.Frame, "openabstractions", "",
 							&wire.SinkDispatcher{Handler: handler},
 							&wire.HistoryReaderDispatcher{Handler: handler},
-							&wire.HistoryObserverDispatcher{Handler: handler})
+							&wire.HistoryObserverDispatcher{Handler: handler},
+							&wire.ApplicationHistoryReaderDispatcher{Handler: &applicationReceiver{handler}},
+							&wire.ApplicationHistoryObserverDispatcher{Handler: &applicationReceiver{handler}},
+							&wire.SourceReaderDispatcher{Handler: &sourceReceiver{receiver: handler}})
 						if err == nil {
 							err = call.Reply(reply)
 						}
@@ -132,12 +156,17 @@ func (h *Host) Serve(ctx context.Context) error {
 }
 
 type receiver struct {
-	out       logging.Sink
-	call      *listen.FramedCall
-	owner     string
-	observers chan struct{}
-	history   HistoryPolicy
-	ctx       context.Context
+	out               logging.Sink
+	call              *listen.FramedCall
+	owner             string
+	observers         chan struct{}
+	history           HistoryPolicy
+	sources           *SourceService
+	sourcePolicy      SourcePolicy
+	protected         ProtectedSourceReads
+	applicationPolicy ApplicationHistoryPolicy
+	applicationSeal   cipher.AEAD
+	ctx               context.Context
 }
 
 // History policy refusal codes returned as service errors.
@@ -204,6 +233,21 @@ func (r *receiver) Write(value wire.Record) error {
 	// Preserve the submitted provenance chain as claims and append this service's
 	// own observation. Never promote a submitted 'verified' field to authority.
 	attested := (&logging.Server{}).Accept(record, peer, nil)
+	if out, ok := r.out.(logging.AttributedSink); ok {
+		if provider, owned := r.out.(applicationHistoryProvider); owned && provider.ApplicationHistoryAvailable() {
+			program, err := identity.SubjectProgram(observed, listen.Program.Path)
+			if err != nil {
+				return err
+			}
+			account := ""
+			if user.Kind == "windows" {
+				account = user.SID
+			} else if user.Kind == "posix" {
+				account = strconv.Itoa(user.UID)
+			}
+			return out.WriteAttributed(attested, logging.Emitter{Version: 1, Account: account, Program: program, Key: identity.ProgramKey(program)})
+		}
+	}
 	return r.out.Write(attested)
 }
 

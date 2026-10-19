@@ -519,8 +519,12 @@ reopening invalidates them and retained records remain available through an
 explicit fresh read. Detected file replacement or truncation returns
 `gap`. External in-place rewriting is outside this provider's supported
 append-only lifecycle: same-inode truncate-and-regrow between reads cannot
-be reliably detected. There is no owned retention mutation API in this
-slice. Complete retention/replay subscriptions remain implementation work.
+be reliably detected. The service-owned retained provider serializes rotation,
+collection and reads with that writer mutex. Retained segments preserve cursor
+positions; removal of unread history returns `gap`. Native providers supply
+resolved byte/age policy through `OpenRetainedFileSink` and `SetRetention`.
+There is no application-facing retention mutation API. Complete retention/replay
+subscriptions remain implementation work.
 
 The read response confirms retrieved history. The `Sink` interface's
 `Write` remains one-way and confirms transport submission only. A stopped
@@ -536,6 +540,192 @@ accepted writes. Filesystem operations remain subject to OS completion; the
 client waiting budget does not promise an interruptible filesystem call
 inside the provider.
 
+#### Scoped application history
+
+`ApplicationHistoryReader` (`abstraction.logging/reader@2`) and
+`ApplicationHistoryObserver` (`abstraction.logging/observer@2`) read the
+account's service-owned retained OA application records. A request explicitly
+selects `one_app` with a clean native subject program, or `all_apps` with no
+program. All apps includes present and future programs whose records this
+account's owning OA logger receives. Native operating-system sources retain
+their separate source-reader API and exact source resources.
+
+**LOG-P5.** The receiving logger derives account, subject program and captured
+file identity from its Program-proven caller. Its private persisted emitter
+stamp remains outside the public `Record` and its shrink ladder. Trusted
+in-process runtime events use the same owned append boundary with the runtime's
+captured self identity. Submitted identity chains, attributes, job names and
+native producer claims supply no emitter authority. Generated decode/reencode
+discards an incoming reserved stamp. Legacy unstamped rows and other-account
+rows are excluded from @2; @1 retains its existing coarse record projection.
+Shared/adopter-owned append files supply no authoritative app attribution and
+do not advertise @2. Invalid private stamps in owned history return `corrupt`.
+
+**LOG-P6.** One app checks the typed application-log target; all apps additionally
+checks explicit collection admission. Rights owns selector matching and block
+precedence. The logger supplies retained concrete emitter evidence to one quiet
+final `CheckBatchFor` snapshot. Per-emitter refusals filter members; selection
+or collection refusal ends the call. No policy callback runs with the provider
+mutex held. Legacy whole-history checks use the shared compiled overlap helper:
+an intersecting live typed block conservatively refuses the coarse call. Typed
+app checks import applicable legacy history blocks. This overlap imports blocks
+only; an old history permit grants no new app-log selector.
+
+**LOG-P7.** Each call copies at most 256 physical rows and 1 MiB from one observed
+retained-history position before target filtering. Outgoing distinct emitter
+checks stop before exceeding the shared 256-resource limit or the actual encoded
+1 MiB `CheckBatchFor` frame, including the caller and selection admission.
+Exclusion precedes the returned 1..256 record and 1..65536 encoded-record-byte
+quotas. Empty pages may advance through excluded or blocked rows while
+`at_end` remains false. An included first record exceeding the returned byte
+budget yields `record_too_large`; excluded records consume no returned quota.
+
+**LOG-P8.** Continuations are sealed to this host instance, caller, account,
+selection, captured target and physical retained position. Resumption uses
+captured target evidence and never reopens today's image to reinterpret old
+rows. A changed selection, tampering, host restart or removed unread history
+returns `gap` without records or cursor movement. The final batch snapshot is
+the authority linearization point; later revocation affects the next batch.
+The cursor grants no authority lease. `Observe` scans once, waits once only
+at an empty physical end, then scans once more and checks a fresh final batch.
+Wait remains within 0..30000 ms with bounded waiters and disconnect cancellation.
+Selection admission is checked even for an empty or wholly excluded page.
+
+`ApplicationLogPage` uses the closed `HistoryPageOutcome` vocabulary. Selection
+or collection policy denial returns `not_permitted`; a decision that cannot be
+obtained returns `unavailable`; invalid semantic bounds or selection returns
+`invalid`. Business refusals contain no records, preserve the supplied cursor
+and set `at_end` false. Caller identity and framing failures use the reply error
+channel. `Page`, `PageOutcome`, `reader@1` and `observer@1` retain their published
+wire shape and legacy refusal behavior.
+
+Native Go clients and facade resolvers request exactly @2 and validate its
+bounded empty-progress pages. Resolution never falls back to @1. Generated
+bindings expose the same wire operations in the other supported languages.
+Reads and final batch checks stay quiet. A caller explicitly requests consent
+through `abstraction.asks/permission@1`; Panel can manage the same typed rules.
+The selector's first-use metadata describes eligibility for that explicit
+permission request. It promises no automatic popup on `Read` or `Observe`.
+Legacy whole-history first-use remains suppressed.
+
+The Go adoption path is to resolve `ResolveLogApplicationReader`, select a
+program through `ApplicationLogTarget{Selection: ApplicationLogSelectionOneApp,
+Program: program}`, and read its bounded page. When consent is needed, the
+caller builds its explicit permission selection with action
+`abstraction.logging/history.read`, resource profile
+`abstraction.logging/application-log@1`, and selector `one` whose document
+`ApplicationLogPermissionTarget(program)` encodes. The document contains only
+the requested program; the trusted Rights owner captures its key. An `all`
+selection contains no target document and explicitly includes the receiving
+account's present and future OA emitters. After consent, the caller retries
+the same exact @2 read. Panel can remove the rule or install a narrower block;
+the next page checks the new shared policy revision.
+The canonical application-log target document is bounded to 16 KiB, matching
+the shared Rights target boundary; oversized requested or persisted targets
+are refused by the owning profile.
+
+#### Native operating-system sources
+
+`logging.thrift` defines `SourceReader` at
+`abstraction.logging/source-reader@1`. It reads one fixed, read-only native
+source per call. A source ID is a stable identifier supplied by the runtime;
+it is never a path or a caller-provided native query. `Sources` returns the
+fixed source catalogue with outcome `catalog` and each source's current availability.
+A catalogue-level refusal has no entries. An unavailable policy decision returns
+the aggregate outcome `unavailable`. `available`
+means that the native query facility is present under the granted source
+scope. It does not promise complete capture. A later read may still receive
+an operating-system refusal. The descriptor lists known retention,
+native redaction, collection-policy and native-access limitations; missing
+metadata is `visibility_unknown`. `SourceLimitation` is descriptive data; readers
+preserve unknown limitation words for display. `SourceAvailability` controls
+usability and rejects unknown words. An empty successful page establishes no
+match in the source's visible retained data. It does not establish that no
+event occurred.
+
+The initial source IDs are `windows/application`, `windows/system`,
+`windows/security`, `linux/system-journal`, `linux/user-journal` and
+`macos/oslog`. They remain in the catalogue on every platform; sources without
+a platform adapter report `unsupported`. A native query that finds an
+operating-system access refusal reports `permission_denied`. A source
+descriptor does not probe protected log content.
+
+Each source read is authorized before the native adapter is probed or called.
+It uses the existing exact action `abstraction.logging/history.read` with the
+source-specific resource `source:<id>`. The separate resource prevents an
+existing grant for `abstraction.logging/history` from granting OS-source
+access. A denied catalogue entry has availability `permission_denied` and
+causes no native access attempt. A policy-denied read or current-end operation
+returns the typed outcome `not_permitted`; an unavailable rights decision uses
+`unavailable`. A known native access denial returns `forbidden`. Native access
+remains subject to the operating system's
+own permissions and entitlements.
+
+`SourceReader.Read` accepts only a fixed source ID and is bounded to 1..256
+entries and 1..65,536 encoded `SourceRecord` bytes. A source adapter receives
+the caller context and these limits and must stop work when the context ends.
+An empty cursor starts at the oldest currently visible retained entry. A
+bounded page may require repeated reads before reaching the current end;
+recent-only tailing is a separate capability. The native source may refuse a
+read even when its query facility is present.
+Each cursor binds both the source ID and that reader instance. Reuse for a
+different source, reader restart or lost retention returns `gap`, no records
+and the original cursor; the caller explicitly restarts from an empty cursor.
+`SourcePage` uses `HistoryPageOutcome`; invalid semantic bounds return `invalid`.
+Refusals contain no records, preserve the supplied cursor and set `at_end` false.
+Identity and framing failures retain the reply error channel. Pages preserve the native source's order.
+The API promises neither cross-source ordering nor observation/subscription.
+
+**[LOG-N1] A protected native page, once per approval.** On Windows, when
+the runtime has a trusted elevated helper (abstraction-facade FAC-H2),
+`windows/security` is a protected source. A `Read` the caller is permitted, by
+the exact `history.read` on `source:windows/security` checked before and after
+as above, whose native query the unelevated runtime is denied MUST NOT be
+retried elevated by the runtime itself. It admits the system-access question
+(abstraction-asks ASK-S1) for this program, source, opened native cursor and
+bounds, and returns the typed outcome `os_authorization_required`. Once the
+person answered `once`, and until the helper's page arrives within the claim
+window, the same read refuses with `os_authorization_pending`. The helper runs
+the same Windows adapter for the Security channel alone, with the same fixed
+arguments and bounds; its `wevtutil.exe` child gets a fixed environment
+(`SystemRoot` and `windir` from the Windows directory, `PATH` the system
+directory alone, `LC_ALL=C`) and nothing of the helper's own. Its page is held in memory for at most 120 seconds,
+validated, sanitized and sealed by the same rules as an adapter's page, and
+returned once, to the same program, for the same source, cursor and bounds;
+the caller's final source right is checked before it is returned. Nothing
+protected is written to disk, and a restart drops a held page. An answer of
+`refuse` or `never`, and a page the helper reports natively denied, refuse with
+`forbidden`; an expired approval admits a new question at the next read.
+Without a trusted helper (a per-user installation, a development layout,
+macOS or Linux) the denial stays `forbidden`, and no question is admitted. All
+protected waiting states and refusals preserve the requested cursor and return
+no records; callers retry the same bounded operation after its existing approval
+or helper state changes.
+`StartAtEnd` is unprotected. Tests: `TestProtectedSourceRead`,
+`TestProtectedSourceRefusals` (go/service).
+
+`SourceReader.StartAtEnd` is an explicit cursor operation for callers that want
+to begin after the currently observed end. It checks the same source-specific
+right before native access and again before returning the sealed cursor. It
+returns no records; a source with no safe native current-position operation
+returns `unsupported`. An empty source still returns a valid sealed baseline,
+so a later `Read` from that cursor can return entries appended afterward. When
+there was no native entry to anchor the baseline, retention loss before the
+first read may be undetectable. Restart and detectable retention loss return
+`gap`. This operation does not watch, subscribe, or promise complete event
+capture.
+
+A `SourceRecord` reuses the common `Record` for normalized time, level,
+message and string attributes. Its `Record.identity` is empty. Native provider
+and process fields travel in the separate `ProducerClaim`, which has no
+verification field and never represents the authenticated OA caller. No
+native claim is promoted to OA identity. Adapters remove known secret-bearing
+structured fields before returning an entry. Native message text may itself
+contain sensitive content; this service makes no universal redaction claim,
+and the caller needs the exact source right to receive it. A source read is a
+direct bounded access; `Sink.Write` remains one-way and provides no checkpoint
+acknowledgement for copying external records.
+
 ## Outcomes
 
 | outcome | meaning | rule |
@@ -547,7 +737,10 @@ inside the provider.
 | `record_too_large` | the first retained record alone exceeds the requested byte budget | — |
 | `corrupt` | a retained record failed to decode | — |
 | `unsupported` | the provider does not implement observation | — |
-| `caller_unavailable`, `identity_required`, `wrong_user`, `policy_unavailable`, `forbidden` | dispatcher-level authorization refusals before a page is read | — |
+| `caller_unavailable`, `identity_required`, `wrong_user` | reply error codes for caller identity failures | — |
+| `policy_unavailable`, `forbidden` | legacy reader@1/observer@1 reply errors for an unavailable decision or policy refusal | — |
+| `invalid`, `not_permitted`, `forbidden`, `unavailable` | new application/native history typed results for invalid semantic bounds, OA policy denial, native or boundary denial, and uncertainty | LOG-P6, LOG-N1 |
+| `os_authorization_required`, `os_authorization_pending` | typed protected-source results while the existing approval or helper page is pending; read again with the same cursor and bounds | LOG-N1 |
 | `runtime_unavailable`, or the resolver's own refusal | the facade's resolution error: no runtime installed or reachable, or the runtime offers no logging sink | LOG-S11 |
 
 ## Bounds
@@ -589,21 +782,34 @@ inside the provider.
   `LOG-S11`).
 - An owned retention mutation API for retained history; complete
   retention/replay subscriptions remain implementation work.
-- macOS protected IPC calls currently lack Program proof and fail closed.
+- Standalone macOS Unix-socket calls lack Program proof and fail closed.
+  The installed runtime uses XPC for Program-protected IPC calls.
 
 ## Next
 
 - **[LOG-S14] History retention.** The history MUST be retained under
   `logs_max_use` and `logs_max_retention` (`research/storage-classes/DECISION.md`
-  §5, §8). Not built: the file sink does not yet rotate `records.jsonl` by
-  size or age, or remove rotated files past either limit; the service
-  keeps what its bounded history retains and no more. `logs_max_use`
+  §5, §8). The Go service-owned provider rotates `records.jsonl` monthly and
+  by size, removes expired completed segments by their newest write time,
+  and removes the oldest completed segments to meet the encoded-byte limit.
+  The active writer remains protected under the same mutex. The limit counts
+  the active JSONL file and completed JSONL segments; filesystem metadata and
+  allocation rounding are outside it. `logs_max_use`
   defaults to 10% of the file system capped at 4G and `logs_max_retention`
   is unset by default, journald's own defaults for `SystemMaxUse` and
   `MaxRetentionSec`. The reader's existing `gap` outcome is the only new
-  observable once rotation lands: a continuation whose records were
-  rotated away returns `gap`, the same outcome a reopened or truncated
-  file already returns, and the caller restarts from the empty cursor.
+  observable: a continuation whose unread records were removed returns `gap`,
+  the same outcome a reopened or truncated file already returns, and the caller
+  restarts from the empty cursor. Open, write and read enforce retention; hosts
+  collect daily and may call the native `Collect` under storage pressure. A
+  record larger than `logs_max_use` is refused by the provider and reported by
+  the host's existing error callback. Collection failures are reported and
+  prevent writes exceeding the bound. The runtime and standalone logging host
+  select the accepted default; native providers may supply byte/age policy.
+  User/machine/run controls, retention-key locking, provenance and stamp remain
+  the accepted config `reader@2`/`editor@2`/`observer@2` dependency. Shared
+  append-only `OpenFileSink` and adopter-owned log files keep their existing
+  lifecycle. No durability receipt or record schema change is introduced.
 
 ## What a conformance run can reach
 

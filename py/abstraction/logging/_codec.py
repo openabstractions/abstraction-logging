@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 
+
 _HEX = b"0123456789abcdef"
 _WS = (0x20, 0x09, 0x0A, 0x0D)
 _SHORT = {0x22: b'\\"', 0x5C: b"\\\\", 0x08: b"\\b", 0x0C: b"\\f",
@@ -185,6 +186,48 @@ class PageOutcome(_StrEnum):
     UNSUPPORTED = "unsupported"
 
 
+class HistoryPageOutcome(_StrEnum):
+    PAGE = "page"
+    GAP = "gap"
+    UNAVAILABLE = "unavailable"
+    INVALID = "invalid"
+    RECORD_TOO_LARGE = "record_too_large"
+    CORRUPT = "corrupt"
+    UNSUPPORTED = "unsupported"
+    FORBIDDEN = "forbidden"
+    NOT_PERMITTED = "not_permitted"
+    OS_AUTHORIZATION_REQUIRED = "os_authorization_required"
+    OS_AUTHORIZATION_PENDING = "os_authorization_pending"
+
+
+class ApplicationLogSelection(_StrEnum):
+    ONE_APP = "one_app"
+    ALL_APPS = "all_apps"
+
+
+class SourceAvailability(_StrEnum):
+    AVAILABLE = "available"
+    PERMISSION_DENIED = "permission_denied"
+    UNAVAILABLE = "unavailable"
+    UNSUPPORTED = "unsupported"
+
+
+class SourceLimitation(_StrEnum):
+    RETENTION = "retention"
+    NATIVE_REDACTION = "native_redaction"
+    COLLECTION_POLICY = "collection_policy"
+    NATIVE_ACCESS = "native_access"
+    VISIBILITY_UNKNOWN = "visibility_unknown"
+
+
+class SourceCatalogOutcome(_StrEnum):
+    CATALOG = "catalog"
+    FORBIDDEN = "forbidden"
+    NOT_PERMITTED = "not_permitted"
+    UNAVAILABLE = "unavailable"
+    INVALID = "invalid"
+
+
 class ServiceErrorCode(_StrEnum):
     HANDLER_ERROR = "handler_error"
     INVALID_RESULT = "invalid_result"
@@ -203,6 +246,9 @@ HISTORY_ERROR_CODES = ["caller_unavailable", "identity_required", "wrong_user", 
 
 
 HISTORY_CURSOR_WORDS = ["end"]
+
+
+HISTORY_IDENTITY_ERROR_CODES = ["caller_unavailable", "identity_required", "wrong_user"]
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -253,6 +299,97 @@ class Page:
 
 
 @dataclasses.dataclass(kw_only=True)
+class ApplicationLogTarget:
+    """One requires an Identity program; all omits program. Account is established
+    by the receiving service. All includes current and future attributed OA
+    emitters in that account, subject to blocks. Native sources and unattributed
+    legacy rows are excluded."""
+
+    selection: ApplicationLogSelection | None = None
+    program: str = ""
+
+
+@dataclasses.dataclass(kw_only=True)
+class ApplicationLogResource:
+    """The application-log@1 owning target document. Trusted preparation normalizes
+    the program and captures its key; callers cannot supply a key to a logging
+    read. Historical enforcers use their captured evidence without reopening a
+    stored image."""
+
+    program: str = ""
+    captured_file_key: str = ""
+
+
+@dataclasses.dataclass(kw_only=True)
+class ApplicationLogPage:
+    """Bounded attributed history. Empty advancing non-end pages report finite scan
+    progress. Refusals preserve the supplied cursor and contain no records.
+    Cursors bind caller, selection, captured target, history instance and
+    position; gap requires explicit restart."""
+
+    outcome: HistoryPageOutcome | None = None
+    records: list[Record] = dataclasses.field(default_factory=list)
+    next: str = ""
+    at_end: bool = False
+
+
+@dataclasses.dataclass(kw_only=True)
+class SourceDescriptor:
+    """A fixed source identifier and current access status. available means the
+    native API can be queried under the granted scope; it does not promise
+    complete capture. limitations states known platform constraints. An empty
+    page establishes no match in the source's visible retained data only."""
+
+    id: str = ""
+    availability: SourceAvailability | None = None
+    limitations: list[SourceLimitation | str] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass(kw_only=True)
+class SourceCatalog:
+    sources: list[SourceDescriptor] = dataclasses.field(default_factory=list)
+    outcome: SourceCatalogOutcome | None = None
+
+
+@dataclasses.dataclass(kw_only=True)
+class ProducerClaim:
+    """Untrusted claims copied from a native source row. These values are never
+    verified OA identity."""
+
+    provider: str = ""
+    program: str = ""
+    exe: str = ""
+    user: str = ""
+    pid: int = 0
+    uid: int = 0
+    gid: int = 0
+
+
+@dataclasses.dataclass(kw_only=True)
+class SourceRecord:
+    """One normalized native source entry. record.identity must be empty; native
+    producer claims remain in producer, separate from authenticated OA callers."""
+
+    source_id: str = ""
+    record: Record = dataclasses.field(default_factory=Record)
+    producer: ProducerClaim | None = None
+
+
+@dataclasses.dataclass(kw_only=True)
+class SourcePage:
+    """A bounded page from exactly one source. Limits count encoded SourceRecord
+    bytes and entries. Cursors bind source ID and reader instance. at_end means
+    the observed end during this call; later native entries may appear. A gap
+    requires an explicit restart with empty cursor; refusal never advances a
+    supplied cursor."""
+
+    outcome: HistoryPageOutcome | None = None
+    records: list[SourceRecord] = dataclasses.field(default_factory=list)
+    next: str = ""
+    at_end: bool = False
+
+
+@dataclasses.dataclass(kw_only=True)
 class _SinkWriteArguments:
     record: Record = dataclasses.field(default_factory=Record)
 
@@ -270,6 +407,41 @@ class _HistoryObserverObserveArguments:
     max_records: int = 0
     max_bytes: int = 0
     wait_ms: int = 0
+
+
+@dataclasses.dataclass(kw_only=True)
+class _ApplicationHistoryReaderReadArguments:
+    target: ApplicationLogTarget = dataclasses.field(default_factory=ApplicationLogTarget)
+    cursor: str = ""
+    max_records: int = 0
+    max_bytes: int = 0
+
+
+@dataclasses.dataclass(kw_only=True)
+class _ApplicationHistoryObserverObserveArguments:
+    target: ApplicationLogTarget = dataclasses.field(default_factory=ApplicationLogTarget)
+    cursor: str = ""
+    max_records: int = 0
+    max_bytes: int = 0
+    wait_ms: int = 0
+
+
+@dataclasses.dataclass(kw_only=True)
+class _SourceReaderSourcesArguments:
+    pass
+
+
+@dataclasses.dataclass(kw_only=True)
+class _SourceReaderReadArguments:
+    source_id: str = ""
+    cursor: str = ""
+    max_records: int = 0
+    max_bytes: int = 0
+
+
+@dataclasses.dataclass(kw_only=True)
+class _SourceReaderStartAtEndArguments:
+    source_id: str = ""
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -303,6 +475,31 @@ class _HistoryReaderReadResult:
 @dataclasses.dataclass(kw_only=True)
 class _HistoryObserverObserveResult:
     value: Page = dataclasses.field(default_factory=Page)
+
+
+@dataclasses.dataclass(kw_only=True)
+class _ApplicationHistoryReaderReadResult:
+    value: ApplicationLogPage = dataclasses.field(default_factory=ApplicationLogPage)
+
+
+@dataclasses.dataclass(kw_only=True)
+class _ApplicationHistoryObserverObserveResult:
+    value: ApplicationLogPage = dataclasses.field(default_factory=ApplicationLogPage)
+
+
+@dataclasses.dataclass(kw_only=True)
+class _SourceReaderSourcesResult:
+    value: SourceCatalog = dataclasses.field(default_factory=SourceCatalog)
+
+
+@dataclasses.dataclass(kw_only=True)
+class _SourceReaderReadResult:
+    value: SourcePage = dataclasses.field(default_factory=SourcePage)
+
+
+@dataclasses.dataclass(kw_only=True)
+class _SourceReaderStartAtEndResult:
+    value: SourcePage = dataclasses.field(default_factory=SourcePage)
 
 
 def _write_attestation(out, v, depth):
@@ -473,6 +670,249 @@ def _write_page(out, v, depth):
     out += b"}"
 
 
+def _write_application_log_target(out, v, depth):
+    _closed_enum(ApplicationLogSelection, v.selection)
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "selection")
+    out += b": "
+    _esc(out, v.selection)
+    if v.program:
+        out += b","
+        out += b"\n"
+        _pad(out, depth + 1)
+        _esc(out, "program")
+        out += b": "
+        _esc(out, v.program)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_application_log_resource(out, v, depth):
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "program")
+    out += b": "
+    _esc(out, v.program)
+    if v.captured_file_key:
+        out += b","
+        out += b"\n"
+        _pad(out, depth + 1)
+        _esc(out, "captured_file_key")
+        out += b": "
+        _esc(out, v.captured_file_key)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_application_log_page(out, v, depth):
+    _closed_enum(HistoryPageOutcome, v.outcome)
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "outcome")
+    out += b": "
+    _esc(out, v.outcome)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "records")
+    out += b": "
+    _write_list(out, v.records, depth + 1, _write_record)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "next")
+    out += b": "
+    _esc(out, v.next)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "at_end")
+    out += b": "
+    out += b"true" if v.at_end else b"false"
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_source_descriptor(out, v, depth):
+    _closed_enum(SourceAvailability, v.availability)
+    for item in v.limitations:
+        if not isinstance(item, str):
+            raise Refusal("wrong_type", 0)
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "id")
+    out += b": "
+    _esc(out, v.id)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "availability")
+    out += b": "
+    _esc(out, v.availability)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "limitations")
+    out += b": "
+    _strs(out, v.limitations, depth + 1)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_source_catalog(out, v, depth):
+    _closed_enum(SourceCatalogOutcome, v.outcome)
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "sources")
+    out += b": "
+    _write_list(out, v.sources, depth + 1, _write_source_descriptor)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "outcome")
+    out += b": "
+    _esc(out, v.outcome)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_producer_claim(out, v, depth):
+    out += b"{"
+    first = True
+    if v.provider:
+        first = False
+        out += b"\n"
+        _pad(out, depth + 1)
+        _esc(out, "provider")
+        out += b": "
+        _esc(out, v.provider)
+    if v.program:
+        if not first:
+            out += b","
+        first = False
+        out += b"\n"
+        _pad(out, depth + 1)
+        _esc(out, "program")
+        out += b": "
+        _esc(out, v.program)
+    if v.exe:
+        if not first:
+            out += b","
+        first = False
+        out += b"\n"
+        _pad(out, depth + 1)
+        _esc(out, "exe")
+        out += b": "
+        _esc(out, v.exe)
+    if v.user:
+        if not first:
+            out += b","
+        first = False
+        out += b"\n"
+        _pad(out, depth + 1)
+        _esc(out, "user")
+        out += b": "
+        _esc(out, v.user)
+    if v.pid != 0:
+        if not first:
+            out += b","
+        first = False
+        out += b"\n"
+        _pad(out, depth + 1)
+        _esc(out, "pid")
+        out += b": "
+        _num(out, v.pid)
+    if v.uid != 0:
+        if not first:
+            out += b","
+        first = False
+        out += b"\n"
+        _pad(out, depth + 1)
+        _esc(out, "uid")
+        out += b": "
+        _num(out, v.uid)
+    if v.gid != 0:
+        if not first:
+            out += b","
+        first = False
+        out += b"\n"
+        _pad(out, depth + 1)
+        _esc(out, "gid")
+        out += b": "
+        _num(out, v.gid)
+    if not first:
+        out += b"\n"
+        _pad(out, depth)
+    out += b"}"
+
+
+def _write_source_record(out, v, depth):
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "source_id")
+    out += b": "
+    _esc(out, v.source_id)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "record")
+    out += b": "
+    _write_record(out, v.record, depth + 1)
+    if v.producer is not None:
+        out += b","
+        out += b"\n"
+        _pad(out, depth + 1)
+        _esc(out, "producer")
+        out += b": "
+        _write_producer_claim(out, v.producer, depth + 1)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_source_page(out, v, depth):
+    _closed_enum(HistoryPageOutcome, v.outcome)
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "outcome")
+    out += b": "
+    _esc(out, v.outcome)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "records")
+    out += b": "
+    _write_list(out, v.records, depth + 1, _write_source_record)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "next")
+    out += b": "
+    _esc(out, v.next)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "at_end")
+    out += b": "
+    out += b"true" if v.at_end else b"false"
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
 def _write_oa_sink_write_arguments(out, v, depth):
     out += b"{"
     out += b"\n"
@@ -534,6 +974,119 @@ def _write_oa_history_observer_observe_arguments(out, v, depth):
     _esc(out, "wait_ms")
     out += b": "
     _num(out, v.wait_ms)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_oa_application_history_reader_read_arguments(out, v, depth):
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "target")
+    out += b": "
+    _write_application_log_target(out, v.target, depth + 1)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "cursor")
+    out += b": "
+    _esc(out, v.cursor)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "max_records")
+    out += b": "
+    _num(out, v.max_records)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "max_bytes")
+    out += b": "
+    _num(out, v.max_bytes)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_oa_application_history_observer_observe_arguments(out, v, depth):
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "target")
+    out += b": "
+    _write_application_log_target(out, v.target, depth + 1)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "cursor")
+    out += b": "
+    _esc(out, v.cursor)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "max_records")
+    out += b": "
+    _num(out, v.max_records)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "max_bytes")
+    out += b": "
+    _num(out, v.max_bytes)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "wait_ms")
+    out += b": "
+    _num(out, v.wait_ms)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_oa_source_reader_sources_arguments(out, v, depth):
+    out += b"{"
+    out += b"}"
+
+
+def _write_oa_source_reader_read_arguments(out, v, depth):
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "source_id")
+    out += b": "
+    _esc(out, v.source_id)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "cursor")
+    out += b": "
+    _esc(out, v.cursor)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "max_records")
+    out += b": "
+    _num(out, v.max_records)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "max_bytes")
+    out += b": "
+    _num(out, v.max_bytes)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_oa_source_reader_start_at_end_arguments(out, v, depth):
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "source_id")
+    out += b": "
+    _esc(out, v.source_id)
     out += b"\n"
     _pad(out, depth)
     out += b"}"
@@ -647,6 +1200,66 @@ def _write_oa_history_observer_observe_result(out, v, depth):
     out += b"}"
 
 
+def _write_oa_application_history_reader_read_result(out, v, depth):
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "value")
+    out += b": "
+    _write_application_log_page(out, v.value, depth + 1)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_oa_application_history_observer_observe_result(out, v, depth):
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "value")
+    out += b": "
+    _write_application_log_page(out, v.value, depth + 1)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_oa_source_reader_sources_result(out, v, depth):
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "value")
+    out += b": "
+    _write_source_catalog(out, v.value, depth + 1)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_oa_source_reader_read_result(out, v, depth):
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "value")
+    out += b": "
+    _write_source_page(out, v.value, depth + 1)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_oa_source_reader_start_at_end_result(out, v, depth):
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "value")
+    out += b": "
+    _write_source_page(out, v.value, depth + 1)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
 def encode(v):
     out = bytearray()
     _write_record(out, v, 0)
@@ -673,12 +1286,13 @@ class Refusal(ValueError):
 
 
 class _Reader:
-    __slots__ = ("buf", "pos", "depth")
+    __slots__ = ("buf", "pos", "depth", "limit")
 
     def __init__(self, buf):
         self.buf = buf
         self.pos = 0
         self.depth = 0
+        self.limit = _DEPTH_LIMIT
 
     def refuse(self, word):
         return Refusal(word, self.pos)
@@ -692,7 +1306,7 @@ class _Reader:
 
     def enter(self):
         self.depth += 1
-        if self.depth > _DEPTH_LIMIT:
+        if self.depth > self.limit:
             raise self.refuse("depth_exceeded")
 
     def digit(self):
@@ -1333,6 +1947,432 @@ def _read_page(r):
     return v
 
 
+def _read_application_log_target(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = ApplicationLogTarget()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "selection":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.selection = r.string()
+            elif key == "program":
+                if seen & 2:
+                    raise r.refuse("duplicate_field")
+                seen |= 2
+                v.program = r.string()
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 1 != 1:
+        raise r.refuse("missing_field")
+    try:
+        v.selection = ApplicationLogSelection(v.selection)
+    except ValueError:
+        raise r.refuse("bad_enum") from None
+    return v
+
+
+def _read_application_log_resource(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = ApplicationLogResource()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "program":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.program = r.string()
+            elif key == "captured_file_key":
+                if seen & 2:
+                    raise r.refuse("duplicate_field")
+                seen |= 2
+                v.captured_file_key = r.string()
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 1 != 1:
+        raise r.refuse("missing_field")
+    return v
+
+
+def _read_application_log_page(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = ApplicationLogPage()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "outcome":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.outcome = r.string()
+            elif key == "records":
+                if seen & 2:
+                    raise r.refuse("duplicate_field")
+                seen |= 2
+                v.records = _read_list(r, _read_record)
+            elif key == "next":
+                if seen & 4:
+                    raise r.refuse("duplicate_field")
+                seen |= 4
+                v.next = r.string()
+            elif key == "at_end":
+                if seen & 8:
+                    raise r.refuse("duplicate_field")
+                seen |= 8
+                v.at_end = r.boolean()
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 15 != 15:
+        raise r.refuse("missing_field")
+    try:
+        v.outcome = HistoryPageOutcome(v.outcome)
+    except ValueError:
+        raise r.refuse("bad_enum") from None
+    return v
+
+
+def _read_source_descriptor(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = SourceDescriptor()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "id":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.id = r.string()
+            elif key == "availability":
+                if seen & 2:
+                    raise r.refuse("duplicate_field")
+                seen |= 2
+                v.availability = r.string()
+            elif key == "limitations":
+                if seen & 4:
+                    raise r.refuse("duplicate_field")
+                seen |= 4
+                v.limitations = r.str_list()
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 7 != 7:
+        raise r.refuse("missing_field")
+    try:
+        v.availability = SourceAvailability(v.availability)
+    except ValueError:
+        raise r.refuse("bad_enum") from None
+    v.limitations = [_open_enum(SourceLimitation, item) for item in v.limitations]
+    return v
+
+
+def _read_source_catalog(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = SourceCatalog()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "sources":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.sources = _read_list(r, _read_source_descriptor)
+            elif key == "outcome":
+                if seen & 2:
+                    raise r.refuse("duplicate_field")
+                seen |= 2
+                v.outcome = r.string()
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 3 != 3:
+        raise r.refuse("missing_field")
+    try:
+        v.outcome = SourceCatalogOutcome(v.outcome)
+    except ValueError:
+        raise r.refuse("bad_enum") from None
+    return v
+
+
+def _read_producer_claim(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = ProducerClaim()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "provider":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.provider = r.string()
+            elif key == "program":
+                if seen & 2:
+                    raise r.refuse("duplicate_field")
+                seen |= 2
+                v.program = r.string()
+            elif key == "exe":
+                if seen & 4:
+                    raise r.refuse("duplicate_field")
+                seen |= 4
+                v.exe = r.string()
+            elif key == "user":
+                if seen & 8:
+                    raise r.refuse("duplicate_field")
+                seen |= 8
+                v.user = r.string()
+            elif key == "pid":
+                if seen & 16:
+                    raise r.refuse("duplicate_field")
+                seen |= 16
+                v.pid = r.integer(-9223372036854775808, 9223372036854775807)
+            elif key == "uid":
+                if seen & 32:
+                    raise r.refuse("duplicate_field")
+                seen |= 32
+                v.uid = r.integer(-9223372036854775808, 9223372036854775807)
+            elif key == "gid":
+                if seen & 64:
+                    raise r.refuse("duplicate_field")
+                seen |= 64
+                v.gid = r.integer(-9223372036854775808, 9223372036854775807)
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    return v
+
+
+def _read_source_record(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = SourceRecord()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "source_id":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.source_id = r.string()
+            elif key == "record":
+                if seen & 2:
+                    raise r.refuse("duplicate_field")
+                seen |= 2
+                v.record = _read_record(r)
+            elif key == "producer":
+                if seen & 4:
+                    raise r.refuse("duplicate_field")
+                seen |= 4
+                v.producer = _read_producer_claim(r)
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 3 != 3:
+        raise r.refuse("missing_field")
+    return v
+
+
+def _read_source_page(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = SourcePage()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "outcome":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.outcome = r.string()
+            elif key == "records":
+                if seen & 2:
+                    raise r.refuse("duplicate_field")
+                seen |= 2
+                v.records = _read_list(r, _read_source_record)
+            elif key == "next":
+                if seen & 4:
+                    raise r.refuse("duplicate_field")
+                seen |= 4
+                v.next = r.string()
+            elif key == "at_end":
+                if seen & 8:
+                    raise r.refuse("duplicate_field")
+                seen |= 8
+                v.at_end = r.boolean()
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 15 != 15:
+        raise r.refuse("missing_field")
+    try:
+        v.outcome = HistoryPageOutcome(v.outcome)
+    except ValueError:
+        raise r.refuse("bad_enum") from None
+    return v
+
+
 def _read_oa_sink_write_arguments(r):
     if r.at() != _LBRACE:
         raise r.refuse("wrong_type")
@@ -1471,6 +2511,246 @@ def _read_oa_history_observer_observe_arguments(r):
     r.pos += 1
     r.depth -= 1
     if seen & 15 != 15:
+        raise r.refuse("missing_field")
+    return v
+
+
+def _read_oa_application_history_reader_read_arguments(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = _ApplicationHistoryReaderReadArguments()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "target":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.target = _read_application_log_target(r)
+            elif key == "cursor":
+                if seen & 2:
+                    raise r.refuse("duplicate_field")
+                seen |= 2
+                v.cursor = r.string()
+            elif key == "max_records":
+                if seen & 4:
+                    raise r.refuse("duplicate_field")
+                seen |= 4
+                v.max_records = r.integer(-9223372036854775808, 9223372036854775807)
+            elif key == "max_bytes":
+                if seen & 8:
+                    raise r.refuse("duplicate_field")
+                seen |= 8
+                v.max_bytes = r.integer(-9223372036854775808, 9223372036854775807)
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 15 != 15:
+        raise r.refuse("missing_field")
+    return v
+
+
+def _read_oa_application_history_observer_observe_arguments(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = _ApplicationHistoryObserverObserveArguments()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "target":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.target = _read_application_log_target(r)
+            elif key == "cursor":
+                if seen & 2:
+                    raise r.refuse("duplicate_field")
+                seen |= 2
+                v.cursor = r.string()
+            elif key == "max_records":
+                if seen & 4:
+                    raise r.refuse("duplicate_field")
+                seen |= 4
+                v.max_records = r.integer(-9223372036854775808, 9223372036854775807)
+            elif key == "max_bytes":
+                if seen & 8:
+                    raise r.refuse("duplicate_field")
+                seen |= 8
+                v.max_bytes = r.integer(-9223372036854775808, 9223372036854775807)
+            elif key == "wait_ms":
+                if seen & 16:
+                    raise r.refuse("duplicate_field")
+                seen |= 16
+                v.wait_ms = r.integer(-9223372036854775808, 9223372036854775807)
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 31 != 31:
+        raise r.refuse("missing_field")
+    return v
+
+
+def _read_oa_source_reader_sources_arguments(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = _SourceReaderSourcesArguments()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if False:
+                pass
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    return v
+
+
+def _read_oa_source_reader_read_arguments(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = _SourceReaderReadArguments()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "source_id":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.source_id = r.string()
+            elif key == "cursor":
+                if seen & 2:
+                    raise r.refuse("duplicate_field")
+                seen |= 2
+                v.cursor = r.string()
+            elif key == "max_records":
+                if seen & 4:
+                    raise r.refuse("duplicate_field")
+                seen |= 4
+                v.max_records = r.integer(-9223372036854775808, 9223372036854775807)
+            elif key == "max_bytes":
+                if seen & 8:
+                    raise r.refuse("duplicate_field")
+                seen |= 8
+                v.max_bytes = r.integer(-9223372036854775808, 9223372036854775807)
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 15 != 15:
+        raise r.refuse("missing_field")
+    return v
+
+
+def _read_oa_source_reader_start_at_end_arguments(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = _SourceReaderStartAtEndArguments()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "source_id":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.source_id = r.string()
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 1 != 1:
         raise r.refuse("missing_field")
     return v
 
@@ -1710,6 +2990,201 @@ def _read_oa_history_observer_observe_result(r):
     return v
 
 
+def _read_oa_application_history_reader_read_result(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = _ApplicationHistoryReaderReadResult()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "value":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.value = _read_application_log_page(r)
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 1 != 1:
+        raise r.refuse("missing_field")
+    return v
+
+
+def _read_oa_application_history_observer_observe_result(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = _ApplicationHistoryObserverObserveResult()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "value":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.value = _read_application_log_page(r)
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 1 != 1:
+        raise r.refuse("missing_field")
+    return v
+
+
+def _read_oa_source_reader_sources_result(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = _SourceReaderSourcesResult()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "value":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.value = _read_source_catalog(r)
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 1 != 1:
+        raise r.refuse("missing_field")
+    return v
+
+
+def _read_oa_source_reader_read_result(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = _SourceReaderReadResult()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "value":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.value = _read_source_page(r)
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 1 != 1:
+        raise r.refuse("missing_field")
+    return v
+
+
+def _read_oa_source_reader_start_at_end_result(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = _SourceReaderStartAtEndResult()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "value":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.value = _read_source_page(r)
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 1 != 1:
+        raise r.refuse("missing_field")
+    return v
+
+
 def decode(data):
     r = _Reader(bytes(data))
     r.ws()
@@ -1844,14 +3319,32 @@ _SERVICE_RECORDS = {
     "Attestation": (Attestation, [("by", "string", "never"), ("verified", "bool", "never"), ("hop", "i64", "never"), ("program", "string", "zero"), ("host", "string", "zero"), ("user", "string", "zero"), ("exe", "string", "zero"), ("uid", "i64", "never"), ("gid", "i64", "never"), ("pid", "i64", "never"), ("key", "string", "zero"), ("mac", "string", "zero"), ]),
     "Record": (Record, [("schema", "i64", "never"), ("time", "string", "never"), ("level", "i64", "never"), ("msg", "string", "never"), ("identity", "list<Attestation>", "zero"), ("job", "string", "zero"), ("attrs", "map<string,string>", "zero"), ]),
     "Page": (Page, [("outcome", "enum", "never"), ("records", "list<Record>", "never"), ("next", "string", "never"), ("at_end", "bool", "never"), ]),
+    "ApplicationLogTarget": (ApplicationLogTarget, [("selection", "enum", "never"), ("program", "string", "absent"), ]),
+    "ApplicationLogResource": (ApplicationLogResource, [("program", "string", "never"), ("captured_file_key", "string", "absent"), ]),
+    "ApplicationLogPage": (ApplicationLogPage, [("outcome", "enum", "never"), ("records", "list<Record>", "never"), ("next", "string", "never"), ("at_end", "bool", "never"), ]),
+    "SourceDescriptor": (SourceDescriptor, [("id", "string", "never"), ("availability", "enum", "never"), ("limitations", "list<enum>", "never"), ]),
+    "SourceCatalog": (SourceCatalog, [("sources", "list<SourceDescriptor>", "never"), ("outcome", "enum", "never"), ]),
+    "ProducerClaim": (ProducerClaim, [("provider", "string", "zero"), ("program", "string", "zero"), ("exe", "string", "zero"), ("user", "string", "zero"), ("pid", "i64", "zero"), ("uid", "i64", "zero"), ("gid", "i64", "zero"), ]),
+    "SourceRecord": (SourceRecord, [("source_id", "string", "never"), ("record", "Record", "never"), ("producer", "ProducerClaim", "absent"), ]),
+    "SourcePage": (SourcePage, [("outcome", "enum", "never"), ("records", "list<SourceRecord>", "never"), ("next", "string", "never"), ("at_end", "bool", "never"), ]),
     "OASinkWriteArguments": (_SinkWriteArguments, [("record", "Record", "never"), ]),
     "OAHistoryReaderReadArguments": (_HistoryReaderReadArguments, [("cursor", "string", "never"), ("max_records", "i64", "never"), ("max_bytes", "i64", "never"), ]),
     "OAHistoryObserverObserveArguments": (_HistoryObserverObserveArguments, [("cursor", "string", "never"), ("max_records", "i64", "never"), ("max_bytes", "i64", "never"), ("wait_ms", "i64", "never"), ]),
+    "OAApplicationHistoryReaderReadArguments": (_ApplicationHistoryReaderReadArguments, [("target", "ApplicationLogTarget", "never"), ("cursor", "string", "never"), ("max_records", "i64", "never"), ("max_bytes", "i64", "never"), ]),
+    "OAApplicationHistoryObserverObserveArguments": (_ApplicationHistoryObserverObserveArguments, [("target", "ApplicationLogTarget", "never"), ("cursor", "string", "never"), ("max_records", "i64", "never"), ("max_bytes", "i64", "never"), ("wait_ms", "i64", "never"), ]),
+    "OASourceReaderSourcesArguments": (_SourceReaderSourcesArguments, []),
+    "OASourceReaderReadArguments": (_SourceReaderReadArguments, [("source_id", "string", "never"), ("cursor", "string", "never"), ("max_records", "i64", "never"), ("max_bytes", "i64", "never"), ]),
+    "OASourceReaderStartAtEndArguments": (_SourceReaderStartAtEndArguments, [("source_id", "string", "never"), ]),
     "OAServiceFrame": (_ServiceFrame, [("version", "i32", "never"), ("service", "string", "never"), ("method", "string", "never"), ("arguments", "json", "never"), ]),
     "OAServiceReply": (_ServiceReply, [("version", "i32", "never"), ("service", "string", "never"), ("method", "string", "never"), ("ok", "bool", "never"), ("payload", "json", "never"), ]),
     "OAServiceError": (_ServiceError, [("code", "string", "never"), ("message", "string", "never"), ]),
     "OAHistoryReaderReadResult": (_HistoryReaderReadResult, [("value", "Page", "never"), ]),
     "OAHistoryObserverObserveResult": (_HistoryObserverObserveResult, [("value", "Page", "never"), ]),
+    "OAApplicationHistoryReaderReadResult": (_ApplicationHistoryReaderReadResult, [("value", "ApplicationLogPage", "never"), ]),
+    "OAApplicationHistoryObserverObserveResult": (_ApplicationHistoryObserverObserveResult, [("value", "ApplicationLogPage", "never"), ]),
+    "OASourceReaderSourcesResult": (_SourceReaderSourcesResult, [("value", "SourceCatalog", "never"), ]),
+    "OASourceReaderReadResult": (_SourceReaderReadResult, [("value", "SourcePage", "never"), ]),
+    "OASourceReaderStartAtEndResult": (_SourceReaderStartAtEndResult, [("value", "SourcePage", "never"), ]),
 }
 
 
@@ -1961,3 +3454,655 @@ class HistoryObserverClient(HistoryObserver):
         _payload = _service_response(self._transport.exchange_frame(_request), "abstraction.logging/observer@1", "Observe")
         _result = _service_decode(_read_oa_history_observer_observe_result, _payload, 1)
         return _result.value
+
+
+class ApplicationHistoryReader:
+
+    def read(self, target: ApplicationLogTarget, cursor: str, max_records: int, max_bytes: int) -> ApplicationLogPage:
+        """Read one or all emitting programs. Bounds are 1..256 returned records
+        and 1..65536 encoded Record bytes; scan work is independently bounded.
+        Empty cursor starts earliest retained history; end fixes the current
+        physical end. One consistent Rights snapshot governs selection and
+        concrete outgoing emitters. No fallback to account-wide reader@1 is
+        permitted."""
+        raise NotImplementedError
+
+
+class ApplicationHistoryReaderClient(ApplicationHistoryReader):
+    """Calls abstraction.logging/reader@2 through a transport that exchanges frames."""
+
+    def __init__(self, transport):
+        self._transport = transport
+
+    def read(self, target: ApplicationLogTarget, cursor: str, max_records: int, max_bytes: int) -> ApplicationLogPage:
+        _service_check("ApplicationLogTarget", target)
+        _service_check("string", cursor)
+        _service_check("i64", max_records)
+        _service_check("i64", max_bytes)
+        _args = _ApplicationHistoryReaderReadArguments()
+        _args.target = target
+        _args.cursor = cursor
+        _args.max_records = max_records
+        _args.max_bytes = max_bytes
+        _arguments = _service_encode(_write_oa_application_history_reader_read_arguments, _args, 1)
+        _service_decode(_read_oa_application_history_reader_read_arguments, _arguments, 1)
+        _request = _service_request("abstraction.logging/reader@2", "Read", _arguments)
+        _payload = _service_response(self._transport.exchange_frame(_request), "abstraction.logging/reader@2", "Read")
+        _result = _service_decode(_read_oa_application_history_reader_read_result, _payload, 1)
+        return _result.value
+
+
+class ApplicationHistoryObserver:
+
+    def observe(self, target: ApplicationLogTarget, cursor: str, max_records: int, max_bytes: int, wait_ms: int) -> ApplicationLogPage:
+        """Read with reader@2 semantics, waiting once at an empty physical end for
+        0..30000 ms. Unrelated writes can produce filtered progress.
+        Cancellation, fixed deadline and bounded waiter capacity apply.
+        Authorization is reevaluated before delivery; no decision is retained
+        across waits or pages."""
+        raise NotImplementedError
+
+
+class ApplicationHistoryObserverClient(ApplicationHistoryObserver):
+    """Calls abstraction.logging/observer@2 through a transport that exchanges frames."""
+
+    def __init__(self, transport):
+        self._transport = transport
+
+    def observe(self, target: ApplicationLogTarget, cursor: str, max_records: int, max_bytes: int, wait_ms: int) -> ApplicationLogPage:
+        _service_check("ApplicationLogTarget", target)
+        _service_check("string", cursor)
+        _service_check("i64", max_records)
+        _service_check("i64", max_bytes)
+        _service_check("i64", wait_ms)
+        _args = _ApplicationHistoryObserverObserveArguments()
+        _args.target = target
+        _args.cursor = cursor
+        _args.max_records = max_records
+        _args.max_bytes = max_bytes
+        _args.wait_ms = wait_ms
+        _arguments = _service_encode(_write_oa_application_history_observer_observe_arguments, _args, 1)
+        _service_decode(_read_oa_application_history_observer_observe_arguments, _arguments, 1)
+        _request = _service_request("abstraction.logging/observer@2", "Observe", _arguments)
+        _payload = _service_response(self._transport.exchange_frame(_request), "abstraction.logging/observer@2", "Observe")
+        _result = _service_decode(_read_oa_application_history_observer_observe_result, _payload, 1)
+        return _result.value
+
+
+class SourceReader:
+    """Authorized bounded reads from fixed, read-only operating-system log sources."""
+
+    def sources(self) -> SourceCatalog:
+        """List the runtime's fixed platform source identifiers and current access
+        status. Source IDs are not paths or query expressions. Per-source OA
+        rights are checked before native probing; a refused source is listed as
+        permission_denied without a native access attempt."""
+        raise NotImplementedError
+
+    def read(self, source_id: str, cursor: str, max_records: int, max_bytes: int) -> SourcePage:
+        """Read one fixed source with bounds of 1..256 entries and 1..65536 encoded
+        SourceRecord bytes. The service checks the exact source-specific right
+        before native access. A provider without a source returns unsupported;
+        OA policy denial returns not_permitted, known native access denial
+        returns forbidden and uncertainty returns unavailable. Invalid semantic
+        bounds return invalid. Refusals contain no records, preserve the
+        supplied cursor and never announce end. Empty cursor starts at the
+        earliest visible retained entry the native API exposes. Cursors bind
+        source ID and reader instance; source mismatch, restart or retention
+        loss returns gap and preserves the cursor. No cross-source ordering,
+        complete-capture claim or observation guarantee is made."""
+        raise NotImplementedError
+
+    def start_at_end(self, source_id: str) -> SourcePage:
+        """Return an opaque baseline cursor at the source's current end without
+        returning records. The exact source-specific right is checked before
+        native access and rechecked before the cursor is returned. A source
+        without a safe current-position operation returns unsupported. Use the
+        returned cursor with Read to request entries that follow this observed
+        end; an empty source produces a valid empty baseline. If no native entry
+        exists at the baseline, a later retention loss before the first read may
+        be undetectable. Cursors bind source ID and reader instance; restart or
+        detectable retention loss returns gap. This is a cursor operation, not a
+        watch or complete-capture guarantee."""
+        raise NotImplementedError
+
+
+class SourceReaderClient(SourceReader):
+    """Calls abstraction.logging/source-reader@1 through a transport that exchanges frames."""
+
+    def __init__(self, transport):
+        self._transport = transport
+
+    def sources(self) -> SourceCatalog:
+        _args = _SourceReaderSourcesArguments()
+        _arguments = _service_encode(_write_oa_source_reader_sources_arguments, _args, 1)
+        _service_decode(_read_oa_source_reader_sources_arguments, _arguments, 1)
+        _request = _service_request("abstraction.logging/source-reader@1", "Sources", _arguments)
+        _payload = _service_response(self._transport.exchange_frame(_request), "abstraction.logging/source-reader@1", "Sources")
+        _result = _service_decode(_read_oa_source_reader_sources_result, _payload, 1)
+        return _result.value
+
+    def read(self, source_id: str, cursor: str, max_records: int, max_bytes: int) -> SourcePage:
+        _service_check("string", source_id)
+        _service_check("string", cursor)
+        _service_check("i64", max_records)
+        _service_check("i64", max_bytes)
+        _args = _SourceReaderReadArguments()
+        _args.source_id = source_id
+        _args.cursor = cursor
+        _args.max_records = max_records
+        _args.max_bytes = max_bytes
+        _arguments = _service_encode(_write_oa_source_reader_read_arguments, _args, 1)
+        _service_decode(_read_oa_source_reader_read_arguments, _arguments, 1)
+        _request = _service_request("abstraction.logging/source-reader@1", "Read", _arguments)
+        _payload = _service_response(self._transport.exchange_frame(_request), "abstraction.logging/source-reader@1", "Read")
+        _result = _service_decode(_read_oa_source_reader_read_result, _payload, 1)
+        return _result.value
+
+    def start_at_end(self, source_id: str) -> SourcePage:
+        _service_check("string", source_id)
+        _args = _SourceReaderStartAtEndArguments()
+        _args.source_id = source_id
+        _arguments = _service_encode(_write_oa_source_reader_start_at_end_arguments, _args, 1)
+        _service_decode(_read_oa_source_reader_start_at_end_arguments, _arguments, 1)
+        _request = _service_request("abstraction.logging/source-reader@1", "StartAtEnd", _arguments)
+        _payload = _service_response(self._transport.exchange_frame(_request), "abstraction.logging/source-reader@1", "StartAtEnd")
+        _result = _service_decode(_read_oa_source_reader_start_at_end_result, _payload, 1)
+        return _result.value
+
+
+_NAMED_IMPORTED = {}
+
+_NAMED_RECORDS = {
+    "Attestation": (Attestation, [("by", "string", "never"), ("verified", "bool", "never"), ("hop", "i64", "never"), ("program", "string", "zero"), ("host", "string", "zero"), ("user", "string", "zero"), ("exe", "string", "zero"), ("uid", "i64", "never"), ("gid", "i64", "never"), ("pid", "i64", "never"), ("key", "string", "zero"), ("mac", "string", "zero"), ]),
+    "Record": (Record, [("schema", "i64", "never"), ("time", "string", "never"), ("level", "i64", "never"), ("msg", "string", "never"), ("identity", "list<Attestation>", "zero"), ("job", "string", "zero"), ("attrs", "map<string,string>", "zero"), ]),
+    "Page": (Page, [("outcome", "enum", "never"), ("records", "list<Record>", "never"), ("next", "string", "never"), ("at_end", "bool", "never"), ]),
+    "ApplicationLogTarget": (ApplicationLogTarget, [("selection", "enum", "never"), ("program", "string", "absent"), ]),
+    "ApplicationLogResource": (ApplicationLogResource, [("program", "string", "never"), ("captured_file_key", "string", "absent"), ]),
+    "ApplicationLogPage": (ApplicationLogPage, [("outcome", "enum", "never"), ("records", "list<Record>", "never"), ("next", "string", "never"), ("at_end", "bool", "never"), ]),
+    "SourceDescriptor": (SourceDescriptor, [("id", "string", "never"), ("availability", "enum", "never"), ("limitations", "list<enum>", "never"), ]),
+    "SourceCatalog": (SourceCatalog, [("sources", "list<SourceDescriptor>", "never"), ("outcome", "enum", "never"), ]),
+    "ProducerClaim": (ProducerClaim, [("provider", "string", "zero"), ("program", "string", "zero"), ("exe", "string", "zero"), ("user", "string", "zero"), ("pid", "i64", "zero"), ("uid", "i64", "zero"), ("gid", "i64", "zero"), ]),
+    "SourceRecord": (SourceRecord, [("source_id", "string", "never"), ("record", "Record", "never"), ("producer", "ProducerClaim", "absent"), ]),
+    "SourcePage": (SourcePage, [("outcome", "enum", "never"), ("records", "list<SourceRecord>", "never"), ("next", "string", "never"), ("at_end", "bool", "never"), ]),
+}
+
+
+def _named_check(kind, value, depth=0, limit=_DEPTH_LIMIT):
+    # Python coercions must not silently change typed service arguments.
+    if depth >= limit and (kind.startswith(("list<", "map<")) or kind in _NAMED_RECORDS):
+        raise Refusal("depth_exceeded", 0)
+    if kind == "binary":
+        valid = type(value) is bytes
+    elif kind == "string":
+        valid = type(value) is str
+    elif kind == "enum":
+        valid = value is None or isinstance(value, str)
+    elif kind in ("i32", "i64"):
+        valid = type(value) is int
+        if valid:
+            limit = 1 << (31 if kind == "i32" else 63)
+            if not -limit <= value < limit:
+                raise Refusal("number_spelling", 0)
+    elif kind == "bool":
+        valid = type(value) is bool
+    elif kind == "json":
+        valid = isinstance(value, (str, bytes, bytearray, memoryview))
+    elif kind.startswith("list<"):
+        valid = type(value) is list
+        if valid:
+            for item in value:
+                _named_check(kind[5:-1], item, depth + 1, limit)
+    elif kind.startswith("map<string,"):
+        valid = type(value) is dict
+        if valid:
+            for key, item in value.items():
+                _named_check("string", key, depth + 1, limit)
+                _named_check(kind[11:-1], item, depth + 1, limit)
+    elif kind in _NAMED_IMPORTED:
+        cls, check = _NAMED_IMPORTED[kind]
+        valid = isinstance(value, cls)
+        if valid:
+            check(value, depth, limit)
+    else:
+        cls, fields = _NAMED_RECORDS[kind]
+        valid = isinstance(value, cls)
+        if valid:
+            for name, field_kind, omit in fields:
+                if not hasattr(value, name):
+                    raise Refusal("missing_field", 0)
+                item = getattr(value, name)
+                if omit == "absent" and item is None:
+                    continue
+                _named_check(field_kind, item, depth + 1, limit)
+    if not valid:
+        raise Refusal("wrong_type", 0)
+
+
+def _check_attestation(v, depth=0, limit=_DEPTH_LIMIT):
+    _named_check("Attestation", v, depth, min(limit, _DEPTH_LIMIT))
+
+
+def _check_record(v, depth=0, limit=_DEPTH_LIMIT):
+    _named_check("Record", v, depth, min(limit, _DEPTH_LIMIT))
+
+
+def _check_page(v, depth=0, limit=_DEPTH_LIMIT):
+    _named_check("Page", v, depth, min(limit, _DEPTH_LIMIT))
+
+
+def _check_application_log_target(v, depth=0, limit=_DEPTH_LIMIT):
+    _named_check("ApplicationLogTarget", v, depth, min(limit, _DEPTH_LIMIT))
+
+
+def _check_application_log_resource(v, depth=0, limit=_DEPTH_LIMIT):
+    _named_check("ApplicationLogResource", v, depth, min(limit, _DEPTH_LIMIT))
+
+
+def _check_application_log_page(v, depth=0, limit=_DEPTH_LIMIT):
+    _named_check("ApplicationLogPage", v, depth, min(limit, _DEPTH_LIMIT))
+
+
+def _check_source_descriptor(v, depth=0, limit=_DEPTH_LIMIT):
+    _named_check("SourceDescriptor", v, depth, min(limit, _DEPTH_LIMIT))
+
+
+def _check_source_catalog(v, depth=0, limit=_DEPTH_LIMIT):
+    _named_check("SourceCatalog", v, depth, min(limit, _DEPTH_LIMIT))
+
+
+def _check_producer_claim(v, depth=0, limit=_DEPTH_LIMIT):
+    _named_check("ProducerClaim", v, depth, min(limit, _DEPTH_LIMIT))
+
+
+def _check_source_record(v, depth=0, limit=_DEPTH_LIMIT):
+    _named_check("SourceRecord", v, depth, min(limit, _DEPTH_LIMIT))
+
+
+def _check_source_page(v, depth=0, limit=_DEPTH_LIMIT):
+    _named_check("SourcePage", v, depth, min(limit, _DEPTH_LIMIT))
+
+
+def _decode_attestation_at(data, depth, limit):
+    r = _Reader(bytes(data))
+    if depth < 0 or limit < 1:
+        raise r.refuse("depth_exceeded")
+    r.depth = depth
+    r.limit = min(limit, _DEPTH_LIMIT)
+    r.ws()
+    v = _read_attestation(r)
+    return v, r.pos
+
+
+def _encode_attestation_at(v, depth):
+    if depth < 0 or depth >= _DEPTH_LIMIT:
+        raise _Reader(b"").refuse("depth_exceeded")
+    _check_attestation(v, depth, _DEPTH_LIMIT)
+    out = bytearray()
+    _write_attestation(out, v, depth)
+    _decode_attestation_at(out, depth, _DEPTH_LIMIT)
+    return bytes(out)
+
+
+def encode_attestation(v):
+    return _encode_attestation_at(v, 0) + "\n".encode()
+
+
+def decode_attestation(data):
+    v, n = _decode_attestation_at(data, 0, _DEPTH_LIMIT)
+    r = _Reader(bytes(data))
+    r.pos = n
+    r.ws()
+    if r.pos != len(r.buf):
+        raise r.refuse("trailing_bytes")
+    return v
+
+
+def _decode_record_at(data, depth, limit):
+    r = _Reader(bytes(data))
+    if depth < 0 or limit < 1:
+        raise r.refuse("depth_exceeded")
+    r.depth = depth
+    r.limit = min(limit, _DEPTH_LIMIT)
+    r.ws()
+    v = _read_record(r)
+    return v, r.pos
+
+
+def _encode_record_at(v, depth):
+    if depth < 0 or depth >= _DEPTH_LIMIT:
+        raise _Reader(b"").refuse("depth_exceeded")
+    _check_record(v, depth, _DEPTH_LIMIT)
+    out = bytearray()
+    _write_record(out, v, depth)
+    _decode_record_at(out, depth, _DEPTH_LIMIT)
+    return bytes(out)
+
+
+def encode_record(v):
+    return _encode_record_at(v, 0) + "\n".encode()
+
+
+def decode_record(data):
+    v, n = _decode_record_at(data, 0, _DEPTH_LIMIT)
+    r = _Reader(bytes(data))
+    r.pos = n
+    r.ws()
+    if r.pos != len(r.buf):
+        raise r.refuse("trailing_bytes")
+    return v
+
+
+def _decode_page_at(data, depth, limit):
+    r = _Reader(bytes(data))
+    if depth < 0 or limit < 1:
+        raise r.refuse("depth_exceeded")
+    r.depth = depth
+    r.limit = min(limit, _DEPTH_LIMIT)
+    r.ws()
+    v = _read_page(r)
+    return v, r.pos
+
+
+def _encode_page_at(v, depth):
+    if depth < 0 or depth >= _DEPTH_LIMIT:
+        raise _Reader(b"").refuse("depth_exceeded")
+    _check_page(v, depth, _DEPTH_LIMIT)
+    out = bytearray()
+    _write_page(out, v, depth)
+    _decode_page_at(out, depth, _DEPTH_LIMIT)
+    return bytes(out)
+
+
+def encode_page(v):
+    return _encode_page_at(v, 0) + "\n".encode()
+
+
+def decode_page(data):
+    v, n = _decode_page_at(data, 0, _DEPTH_LIMIT)
+    r = _Reader(bytes(data))
+    r.pos = n
+    r.ws()
+    if r.pos != len(r.buf):
+        raise r.refuse("trailing_bytes")
+    return v
+
+
+def _decode_application_log_target_at(data, depth, limit):
+    r = _Reader(bytes(data))
+    if depth < 0 or limit < 1:
+        raise r.refuse("depth_exceeded")
+    r.depth = depth
+    r.limit = min(limit, _DEPTH_LIMIT)
+    r.ws()
+    v = _read_application_log_target(r)
+    return v, r.pos
+
+
+def _encode_application_log_target_at(v, depth):
+    if depth < 0 or depth >= _DEPTH_LIMIT:
+        raise _Reader(b"").refuse("depth_exceeded")
+    _check_application_log_target(v, depth, _DEPTH_LIMIT)
+    out = bytearray()
+    _write_application_log_target(out, v, depth)
+    _decode_application_log_target_at(out, depth, _DEPTH_LIMIT)
+    return bytes(out)
+
+
+def encode_application_log_target(v):
+    return _encode_application_log_target_at(v, 0) + "\n".encode()
+
+
+def decode_application_log_target(data):
+    v, n = _decode_application_log_target_at(data, 0, _DEPTH_LIMIT)
+    r = _Reader(bytes(data))
+    r.pos = n
+    r.ws()
+    if r.pos != len(r.buf):
+        raise r.refuse("trailing_bytes")
+    return v
+
+
+def _decode_application_log_resource_at(data, depth, limit):
+    r = _Reader(bytes(data))
+    if depth < 0 or limit < 1:
+        raise r.refuse("depth_exceeded")
+    r.depth = depth
+    r.limit = min(limit, _DEPTH_LIMIT)
+    r.ws()
+    v = _read_application_log_resource(r)
+    return v, r.pos
+
+
+def _encode_application_log_resource_at(v, depth):
+    if depth < 0 or depth >= _DEPTH_LIMIT:
+        raise _Reader(b"").refuse("depth_exceeded")
+    _check_application_log_resource(v, depth, _DEPTH_LIMIT)
+    out = bytearray()
+    _write_application_log_resource(out, v, depth)
+    _decode_application_log_resource_at(out, depth, _DEPTH_LIMIT)
+    return bytes(out)
+
+
+def encode_application_log_resource(v):
+    return _encode_application_log_resource_at(v, 0) + "\n".encode()
+
+
+def decode_application_log_resource(data):
+    v, n = _decode_application_log_resource_at(data, 0, _DEPTH_LIMIT)
+    r = _Reader(bytes(data))
+    r.pos = n
+    r.ws()
+    if r.pos != len(r.buf):
+        raise r.refuse("trailing_bytes")
+    return v
+
+
+def _decode_application_log_page_at(data, depth, limit):
+    r = _Reader(bytes(data))
+    if depth < 0 or limit < 1:
+        raise r.refuse("depth_exceeded")
+    r.depth = depth
+    r.limit = min(limit, _DEPTH_LIMIT)
+    r.ws()
+    v = _read_application_log_page(r)
+    return v, r.pos
+
+
+def _encode_application_log_page_at(v, depth):
+    if depth < 0 or depth >= _DEPTH_LIMIT:
+        raise _Reader(b"").refuse("depth_exceeded")
+    _check_application_log_page(v, depth, _DEPTH_LIMIT)
+    out = bytearray()
+    _write_application_log_page(out, v, depth)
+    _decode_application_log_page_at(out, depth, _DEPTH_LIMIT)
+    return bytes(out)
+
+
+def encode_application_log_page(v):
+    return _encode_application_log_page_at(v, 0) + "\n".encode()
+
+
+def decode_application_log_page(data):
+    v, n = _decode_application_log_page_at(data, 0, _DEPTH_LIMIT)
+    r = _Reader(bytes(data))
+    r.pos = n
+    r.ws()
+    if r.pos != len(r.buf):
+        raise r.refuse("trailing_bytes")
+    return v
+
+
+def _decode_source_descriptor_at(data, depth, limit):
+    r = _Reader(bytes(data))
+    if depth < 0 or limit < 1:
+        raise r.refuse("depth_exceeded")
+    r.depth = depth
+    r.limit = min(limit, _DEPTH_LIMIT)
+    r.ws()
+    v = _read_source_descriptor(r)
+    return v, r.pos
+
+
+def _encode_source_descriptor_at(v, depth):
+    if depth < 0 or depth >= _DEPTH_LIMIT:
+        raise _Reader(b"").refuse("depth_exceeded")
+    _check_source_descriptor(v, depth, _DEPTH_LIMIT)
+    out = bytearray()
+    _write_source_descriptor(out, v, depth)
+    _decode_source_descriptor_at(out, depth, _DEPTH_LIMIT)
+    return bytes(out)
+
+
+def encode_source_descriptor(v):
+    return _encode_source_descriptor_at(v, 0) + "\n".encode()
+
+
+def decode_source_descriptor(data):
+    v, n = _decode_source_descriptor_at(data, 0, _DEPTH_LIMIT)
+    r = _Reader(bytes(data))
+    r.pos = n
+    r.ws()
+    if r.pos != len(r.buf):
+        raise r.refuse("trailing_bytes")
+    return v
+
+
+def _decode_source_catalog_at(data, depth, limit):
+    r = _Reader(bytes(data))
+    if depth < 0 or limit < 1:
+        raise r.refuse("depth_exceeded")
+    r.depth = depth
+    r.limit = min(limit, _DEPTH_LIMIT)
+    r.ws()
+    v = _read_source_catalog(r)
+    return v, r.pos
+
+
+def _encode_source_catalog_at(v, depth):
+    if depth < 0 or depth >= _DEPTH_LIMIT:
+        raise _Reader(b"").refuse("depth_exceeded")
+    _check_source_catalog(v, depth, _DEPTH_LIMIT)
+    out = bytearray()
+    _write_source_catalog(out, v, depth)
+    _decode_source_catalog_at(out, depth, _DEPTH_LIMIT)
+    return bytes(out)
+
+
+def encode_source_catalog(v):
+    return _encode_source_catalog_at(v, 0) + "\n".encode()
+
+
+def decode_source_catalog(data):
+    v, n = _decode_source_catalog_at(data, 0, _DEPTH_LIMIT)
+    r = _Reader(bytes(data))
+    r.pos = n
+    r.ws()
+    if r.pos != len(r.buf):
+        raise r.refuse("trailing_bytes")
+    return v
+
+
+def _decode_producer_claim_at(data, depth, limit):
+    r = _Reader(bytes(data))
+    if depth < 0 or limit < 1:
+        raise r.refuse("depth_exceeded")
+    r.depth = depth
+    r.limit = min(limit, _DEPTH_LIMIT)
+    r.ws()
+    v = _read_producer_claim(r)
+    return v, r.pos
+
+
+def _encode_producer_claim_at(v, depth):
+    if depth < 0 or depth >= _DEPTH_LIMIT:
+        raise _Reader(b"").refuse("depth_exceeded")
+    _check_producer_claim(v, depth, _DEPTH_LIMIT)
+    out = bytearray()
+    _write_producer_claim(out, v, depth)
+    _decode_producer_claim_at(out, depth, _DEPTH_LIMIT)
+    return bytes(out)
+
+
+def encode_producer_claim(v):
+    return _encode_producer_claim_at(v, 0) + "\n".encode()
+
+
+def decode_producer_claim(data):
+    v, n = _decode_producer_claim_at(data, 0, _DEPTH_LIMIT)
+    r = _Reader(bytes(data))
+    r.pos = n
+    r.ws()
+    if r.pos != len(r.buf):
+        raise r.refuse("trailing_bytes")
+    return v
+
+
+def _decode_source_record_at(data, depth, limit):
+    r = _Reader(bytes(data))
+    if depth < 0 or limit < 1:
+        raise r.refuse("depth_exceeded")
+    r.depth = depth
+    r.limit = min(limit, _DEPTH_LIMIT)
+    r.ws()
+    v = _read_source_record(r)
+    return v, r.pos
+
+
+def _encode_source_record_at(v, depth):
+    if depth < 0 or depth >= _DEPTH_LIMIT:
+        raise _Reader(b"").refuse("depth_exceeded")
+    _check_source_record(v, depth, _DEPTH_LIMIT)
+    out = bytearray()
+    _write_source_record(out, v, depth)
+    _decode_source_record_at(out, depth, _DEPTH_LIMIT)
+    return bytes(out)
+
+
+def encode_source_record(v):
+    return _encode_source_record_at(v, 0) + "\n".encode()
+
+
+def decode_source_record(data):
+    v, n = _decode_source_record_at(data, 0, _DEPTH_LIMIT)
+    r = _Reader(bytes(data))
+    r.pos = n
+    r.ws()
+    if r.pos != len(r.buf):
+        raise r.refuse("trailing_bytes")
+    return v
+
+
+def _decode_source_page_at(data, depth, limit):
+    r = _Reader(bytes(data))
+    if depth < 0 or limit < 1:
+        raise r.refuse("depth_exceeded")
+    r.depth = depth
+    r.limit = min(limit, _DEPTH_LIMIT)
+    r.ws()
+    v = _read_source_page(r)
+    return v, r.pos
+
+
+def _encode_source_page_at(v, depth):
+    if depth < 0 or depth >= _DEPTH_LIMIT:
+        raise _Reader(b"").refuse("depth_exceeded")
+    _check_source_page(v, depth, _DEPTH_LIMIT)
+    out = bytearray()
+    _write_source_page(out, v, depth)
+    _decode_source_page_at(out, depth, _DEPTH_LIMIT)
+    return bytes(out)
+
+
+def encode_source_page(v):
+    return _encode_source_page_at(v, 0) + "\n".encode()
+
+
+def decode_source_page(data):
+    v, n = _decode_source_page_at(data, 0, _DEPTH_LIMIT)
+    r = _Reader(bytes(data))
+    r.pos = n
+    r.ws()
+    if r.pos != len(r.buf):
+        raise r.refuse("trailing_bytes")
+    return v

@@ -36,6 +36,24 @@ fn pad(out: &mut Vec<u8>, depth: i32) {
     }
 }
 
+fn strs(out: &mut Vec<u8>, v: &[String], depth: i32) {
+    if v.is_empty() {
+        out.extend_from_slice(b"[]");
+        return;
+    }
+    out.extend_from_slice(b"[\n");
+    for (i, s) in v.iter().enumerate() {
+        pad(out, depth + 1);
+        esc(out, s);
+        if i + 1 < v.len() {
+            out.push(b',');
+        }
+        out.push(b'\n');
+    }
+    pad(out, depth);
+    out.push(b']');
+}
+
 fn ws(c: u8) -> bool {
     c == b' ' || c == b'\t' || c == b'\n' || c == b'\r'
 }
@@ -148,6 +166,248 @@ impl PartialEq<&str> for PageOutcome {
     }
 }
 
+/// The closed vocabulary HistoryPageOutcome. A reader refuses a name it does not list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum HistoryPageOutcome {
+    Page,
+    Gap,
+    Unavailable,
+    Invalid,
+    RecordTooLarge,
+    Corrupt,
+    Unsupported,
+    Forbidden,
+    NotPermitted,
+    OsAuthorizationRequired,
+    OsAuthorizationPending,
+}
+
+impl HistoryPageOutcome {
+    /// Every member, in declaration order.
+    pub const ALL: [Self; 11] = [Self::Page, Self::Gap, Self::Unavailable, Self::Invalid, Self::RecordTooLarge, Self::Corrupt, Self::Unsupported, Self::Forbidden, Self::NotPermitted, Self::OsAuthorizationRequired, Self::OsAuthorizationPending];
+
+    /// The member's name on the wire.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Page => "page",
+            Self::Gap => "gap",
+            Self::Unavailable => "unavailable",
+            Self::Invalid => "invalid",
+            Self::RecordTooLarge => "record_too_large",
+            Self::Corrupt => "corrupt",
+            Self::Unsupported => "unsupported",
+            Self::Forbidden => "forbidden",
+            Self::NotPermitted => "not_permitted",
+            Self::OsAuthorizationRequired => "os_authorization_required",
+            Self::OsAuthorizationPending => "os_authorization_pending",
+        }
+    }
+
+    /// The member a wire name spells, or `None` for a name this vocabulary refuses.
+    pub fn from_wire(name: &str) -> Option<Self> {
+        match name {
+            "page" => Some(Self::Page),
+            "gap" => Some(Self::Gap),
+            "unavailable" => Some(Self::Unavailable),
+            "invalid" => Some(Self::Invalid),
+            "record_too_large" => Some(Self::RecordTooLarge),
+            "corrupt" => Some(Self::Corrupt),
+            "unsupported" => Some(Self::Unsupported),
+            "forbidden" => Some(Self::Forbidden),
+            "not_permitted" => Some(Self::NotPermitted),
+            "os_authorization_required" => Some(Self::OsAuthorizationRequired),
+            "os_authorization_pending" => Some(Self::OsAuthorizationPending),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for HistoryPageOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl PartialEq<str> for HistoryPageOutcome {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
+    }
+}
+
+impl PartialEq<&str> for HistoryPageOutcome {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+/// The closed vocabulary ApplicationLogSelection. A reader refuses a name it does not list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ApplicationLogSelection {
+    OneApp,
+    AllApps,
+}
+
+impl ApplicationLogSelection {
+    /// Every member, in declaration order.
+    pub const ALL: [Self; 2] = [Self::OneApp, Self::AllApps];
+
+    /// The member's name on the wire.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OneApp => "one_app",
+            Self::AllApps => "all_apps",
+        }
+    }
+
+    /// The member a wire name spells, or `None` for a name this vocabulary refuses.
+    pub fn from_wire(name: &str) -> Option<Self> {
+        match name {
+            "one_app" => Some(Self::OneApp),
+            "all_apps" => Some(Self::AllApps),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for ApplicationLogSelection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl PartialEq<str> for ApplicationLogSelection {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
+    }
+}
+
+impl PartialEq<&str> for ApplicationLogSelection {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+/// The closed vocabulary SourceAvailability. A reader refuses a name it does not list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SourceAvailability {
+    Available,
+    PermissionDenied,
+    Unavailable,
+    Unsupported,
+}
+
+impl SourceAvailability {
+    /// Every member, in declaration order.
+    pub const ALL: [Self; 4] = [Self::Available, Self::PermissionDenied, Self::Unavailable, Self::Unsupported];
+
+    /// The member's name on the wire.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Available => "available",
+            Self::PermissionDenied => "permission_denied",
+            Self::Unavailable => "unavailable",
+            Self::Unsupported => "unsupported",
+        }
+    }
+
+    /// The member a wire name spells, or `None` for a name this vocabulary refuses.
+    pub fn from_wire(name: &str) -> Option<Self> {
+        match name {
+            "available" => Some(Self::Available),
+            "permission_denied" => Some(Self::PermissionDenied),
+            "unavailable" => Some(Self::Unavailable),
+            "unsupported" => Some(Self::Unsupported),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for SourceAvailability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl PartialEq<str> for SourceAvailability {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
+    }
+}
+
+impl PartialEq<&str> for SourceAvailability {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+/// Names of the open vocabulary SourceLimitation. A reader keeps a name it has never heard
+/// of, so fields carry `String` and a match needs an arm for the rest.
+pub mod source_limitation {
+    pub const RETENTION: &str = "retention";
+    pub const NATIVE_REDACTION: &str = "native_redaction";
+    pub const COLLECTION_POLICY: &str = "collection_policy";
+    pub const NATIVE_ACCESS: &str = "native_access";
+    pub const VISIBILITY_UNKNOWN: &str = "visibility_unknown";
+    /// Every name this definition declares, in declaration order.
+    pub const ALL: [&str; 5] = [RETENTION, NATIVE_REDACTION, COLLECTION_POLICY, NATIVE_ACCESS, VISIBILITY_UNKNOWN];
+}
+
+/// The closed vocabulary SourceCatalogOutcome. A reader refuses a name it does not list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SourceCatalogOutcome {
+    Catalog,
+    Forbidden,
+    NotPermitted,
+    Unavailable,
+    Invalid,
+}
+
+impl SourceCatalogOutcome {
+    /// Every member, in declaration order.
+    pub const ALL: [Self; 5] = [Self::Catalog, Self::Forbidden, Self::NotPermitted, Self::Unavailable, Self::Invalid];
+
+    /// The member's name on the wire.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Catalog => "catalog",
+            Self::Forbidden => "forbidden",
+            Self::NotPermitted => "not_permitted",
+            Self::Unavailable => "unavailable",
+            Self::Invalid => "invalid",
+        }
+    }
+
+    /// The member a wire name spells, or `None` for a name this vocabulary refuses.
+    pub fn from_wire(name: &str) -> Option<Self> {
+        match name {
+            "catalog" => Some(Self::Catalog),
+            "forbidden" => Some(Self::Forbidden),
+            "not_permitted" => Some(Self::NotPermitted),
+            "unavailable" => Some(Self::Unavailable),
+            "invalid" => Some(Self::Invalid),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for SourceCatalogOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl PartialEq<str> for SourceCatalogOutcome {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
+    }
+}
+
+impl PartialEq<&str> for SourceCatalogOutcome {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
 /// Names of the open vocabulary ServiceErrorCode. A reader keeps a name it has never heard
 /// of, so fields carry `String` and a match needs an arm for the rest.
 pub mod service_error_code {
@@ -169,6 +429,8 @@ pub mod service_error_code {
 pub const HISTORY_ERROR_CODES: [&str; 5] = ["caller_unavailable", "identity_required", "wrong_user", "policy_unavailable", "forbidden"];
 
 pub const HISTORY_CURSOR_WORDS: [&str; 1] = ["end"];
+
+pub const HISTORY_IDENTITY_ERROR_CODES: [&str; 3] = ["caller_unavailable", "identity_required", "wrong_user"];
 
 /// One hop of the provenance chain. program is the name a party gives itself
 /// and appears on the writer's self claim. exe is the executable path the
@@ -215,6 +477,90 @@ pub struct Page {
     pub at_end: bool,
 }
 
+/// One requires an Identity program; all omits program. Account is established
+/// by the receiving service. All includes current and future attributed OA
+/// emitters in that account, subject to blocks. Native sources and unattributed
+/// legacy rows are excluded.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApplicationLogTarget {
+    pub selection: ApplicationLogSelection,
+    pub program: String,
+}
+
+/// The application-log@1 owning target document. Trusted preparation normalizes
+/// the program and captures its key; callers cannot supply a key to a logging
+/// read. Historical enforcers use their captured evidence without reopening a
+/// stored image.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ApplicationLogResource {
+    pub program: String,
+    pub captured_file_key: String,
+}
+
+/// Bounded attributed history. Empty advancing non-end pages report finite scan
+/// progress. Refusals preserve the supplied cursor and contain no records.
+/// Cursors bind caller, selection, captured target, history instance and
+/// position; gap requires explicit restart.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApplicationLogPage {
+    pub outcome: HistoryPageOutcome,
+    pub records: Vec<Record>,
+    pub next: String,
+    pub at_end: bool,
+}
+
+/// A fixed source identifier and current access status. available means the
+/// native API can be queried under the granted scope; it does not promise
+/// complete capture. limitations states known platform constraints. An empty
+/// page establishes no match in the source's visible retained data only.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceDescriptor {
+    pub id: String,
+    pub availability: SourceAvailability,
+    pub limitations: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceCatalog {
+    pub sources: Vec<SourceDescriptor>,
+    pub outcome: SourceCatalogOutcome,
+}
+
+/// Untrusted claims copied from a native source row. These values are never
+/// verified OA identity.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProducerClaim {
+    pub provider: String,
+    pub program: String,
+    pub exe: String,
+    pub user: String,
+    pub pid: i64,
+    pub uid: i64,
+    pub gid: i64,
+}
+
+/// One normalized native source entry. record.identity must be empty; native
+/// producer claims remain in producer, separate from authenticated OA callers.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SourceRecord {
+    pub source_id: String,
+    pub record: Record,
+    pub producer: Option<ProducerClaim>,
+}
+
+/// A bounded page from exactly one source. Limits count encoded SourceRecord
+/// bytes and entries. Cursors bind source ID and reader instance. at_end means
+/// the observed end during this call; later native entries may appear. A gap
+/// requires an explicit restart with empty cursor; refusal never advances a
+/// supplied cursor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourcePage {
+    pub outcome: HistoryPageOutcome,
+    pub records: Vec<SourceRecord>,
+    pub next: String,
+    pub at_end: bool,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct OASinkWriteArguments {
     record: Record,
@@ -233,6 +579,40 @@ struct OAHistoryObserverObserveArguments {
     max_records: i64,
     max_bytes: i64,
     wait_ms: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct OAApplicationHistoryReaderReadArguments {
+    target: ApplicationLogTarget,
+    cursor: String,
+    max_records: i64,
+    max_bytes: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct OAApplicationHistoryObserverObserveArguments {
+    target: ApplicationLogTarget,
+    cursor: String,
+    max_records: i64,
+    max_bytes: i64,
+    wait_ms: i64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct OASourceReaderSourcesArguments {
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct OASourceReaderReadArguments {
+    source_id: String,
+    cursor: String,
+    max_records: i64,
+    max_bytes: i64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct OASourceReaderStartAtEndArguments {
+    source_id: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -266,6 +646,31 @@ struct OAHistoryReaderReadResult {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct OAHistoryObserverObserveResult {
     value: Page,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct OAApplicationHistoryReaderReadResult {
+    value: ApplicationLogPage,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct OAApplicationHistoryObserverObserveResult {
+    value: ApplicationLogPage,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct OASourceReaderSourcesResult {
+    value: SourceCatalog,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct OASourceReaderReadResult {
+    value: SourcePage,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct OASourceReaderStartAtEndResult {
+    value: SourcePage,
 }
 
 fn enc_attestation(out: &mut Vec<u8>, v: &Attestation, depth: i32) {
@@ -413,6 +818,288 @@ fn enc_record(out: &mut Vec<u8>, v: &Record, depth: i32) {
     out.push(b'}');
 }
 
+fn enc_page(out: &mut Vec<u8>, v: &Page, depth: i32) {
+    out.push(b'{');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "outcome");
+    out.extend_from_slice(b": ");
+    esc(out, v.outcome.as_str());
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "records");
+    out.extend_from_slice(b": ");
+    enc_list(out, &v.records, depth + 1, enc_record);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "next");
+    out.extend_from_slice(b": ");
+    esc(out, &v.next);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "at_end");
+    out.extend_from_slice(b": ");
+    out.extend_from_slice(if v.at_end { b"true" } else { b"false" });
+    out.push(b'\n');
+    pad(out, depth);
+    out.push(b'}');
+}
+
+fn enc_application_log_target(out: &mut Vec<u8>, v: &ApplicationLogTarget, depth: i32) {
+    out.push(b'{');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "selection");
+    out.extend_from_slice(b": ");
+    esc(out, v.selection.as_str());
+    if !v.program.is_empty() {
+        out.push(b',');
+        out.push(b'\n');
+        pad(out, depth + 1);
+        esc(out, "program");
+        out.extend_from_slice(b": ");
+        esc(out, &v.program);
+    }
+    out.push(b'\n');
+    pad(out, depth);
+    out.push(b'}');
+}
+
+fn enc_application_log_resource(out: &mut Vec<u8>, v: &ApplicationLogResource, depth: i32) {
+    out.push(b'{');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "program");
+    out.extend_from_slice(b": ");
+    esc(out, &v.program);
+    if !v.captured_file_key.is_empty() {
+        out.push(b',');
+        out.push(b'\n');
+        pad(out, depth + 1);
+        esc(out, "captured_file_key");
+        out.extend_from_slice(b": ");
+        esc(out, &v.captured_file_key);
+    }
+    out.push(b'\n');
+    pad(out, depth);
+    out.push(b'}');
+}
+
+fn enc_application_log_page(out: &mut Vec<u8>, v: &ApplicationLogPage, depth: i32) {
+    out.push(b'{');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "outcome");
+    out.extend_from_slice(b": ");
+    esc(out, v.outcome.as_str());
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "records");
+    out.extend_from_slice(b": ");
+    enc_list(out, &v.records, depth + 1, enc_record);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "next");
+    out.extend_from_slice(b": ");
+    esc(out, &v.next);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "at_end");
+    out.extend_from_slice(b": ");
+    out.extend_from_slice(if v.at_end { b"true" } else { b"false" });
+    out.push(b'\n');
+    pad(out, depth);
+    out.push(b'}');
+}
+
+fn enc_source_descriptor(out: &mut Vec<u8>, v: &SourceDescriptor, depth: i32) {
+    out.push(b'{');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "id");
+    out.extend_from_slice(b": ");
+    esc(out, &v.id);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "availability");
+    out.extend_from_slice(b": ");
+    esc(out, v.availability.as_str());
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "limitations");
+    out.extend_from_slice(b": ");
+    strs(out, &v.limitations, depth + 1);
+    out.push(b'\n');
+    pad(out, depth);
+    out.push(b'}');
+}
+
+fn enc_source_catalog(out: &mut Vec<u8>, v: &SourceCatalog, depth: i32) {
+    out.push(b'{');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "sources");
+    out.extend_from_slice(b": ");
+    enc_list(out, &v.sources, depth + 1, enc_source_descriptor);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "outcome");
+    out.extend_from_slice(b": ");
+    esc(out, v.outcome.as_str());
+    out.push(b'\n');
+    pad(out, depth);
+    out.push(b'}');
+}
+
+fn enc_producer_claim(out: &mut Vec<u8>, v: &ProducerClaim, depth: i32) {
+    out.push(b'{');
+    let mut first = true;
+    if !v.provider.is_empty() {
+        first = false;
+        out.push(b'\n');
+        pad(out, depth + 1);
+        esc(out, "provider");
+        out.extend_from_slice(b": ");
+        esc(out, &v.provider);
+    }
+    if !v.program.is_empty() {
+        if !first {
+            out.push(b',');
+        }
+        first = false;
+        out.push(b'\n');
+        pad(out, depth + 1);
+        esc(out, "program");
+        out.extend_from_slice(b": ");
+        esc(out, &v.program);
+    }
+    if !v.exe.is_empty() {
+        if !first {
+            out.push(b',');
+        }
+        first = false;
+        out.push(b'\n');
+        pad(out, depth + 1);
+        esc(out, "exe");
+        out.extend_from_slice(b": ");
+        esc(out, &v.exe);
+    }
+    if !v.user.is_empty() {
+        if !first {
+            out.push(b',');
+        }
+        first = false;
+        out.push(b'\n');
+        pad(out, depth + 1);
+        esc(out, "user");
+        out.extend_from_slice(b": ");
+        esc(out, &v.user);
+    }
+    if v.pid != 0 {
+        if !first {
+            out.push(b',');
+        }
+        first = false;
+        out.push(b'\n');
+        pad(out, depth + 1);
+        esc(out, "pid");
+        out.extend_from_slice(b": ");
+        num(out, v.pid);
+    }
+    if v.uid != 0 {
+        if !first {
+            out.push(b',');
+        }
+        first = false;
+        out.push(b'\n');
+        pad(out, depth + 1);
+        esc(out, "uid");
+        out.extend_from_slice(b": ");
+        num(out, v.uid);
+    }
+    if v.gid != 0 {
+        if !first {
+            out.push(b',');
+        }
+        first = false;
+        out.push(b'\n');
+        pad(out, depth + 1);
+        esc(out, "gid");
+        out.extend_from_slice(b": ");
+        num(out, v.gid);
+    }
+    if !first {
+        out.push(b'\n');
+        pad(out, depth);
+    }
+    out.push(b'}');
+}
+
+fn enc_source_record(out: &mut Vec<u8>, v: &SourceRecord, depth: i32) {
+    out.push(b'{');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "source_id");
+    out.extend_from_slice(b": ");
+    esc(out, &v.source_id);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "record");
+    out.extend_from_slice(b": ");
+    enc_record(out, &v.record, depth + 1);
+    if let Some(value) = &v.producer {
+        out.push(b',');
+        out.push(b'\n');
+        pad(out, depth + 1);
+        esc(out, "producer");
+        out.extend_from_slice(b": ");
+        enc_producer_claim(out, value, depth + 1);
+    }
+    out.push(b'\n');
+    pad(out, depth);
+    out.push(b'}');
+}
+
+fn enc_source_page(out: &mut Vec<u8>, v: &SourcePage, depth: i32) {
+    out.push(b'{');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "outcome");
+    out.extend_from_slice(b": ");
+    esc(out, v.outcome.as_str());
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "records");
+    out.extend_from_slice(b": ");
+    enc_list(out, &v.records, depth + 1, enc_source_record);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "next");
+    out.extend_from_slice(b": ");
+    esc(out, &v.next);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "at_end");
+    out.extend_from_slice(b": ");
+    out.extend_from_slice(if v.at_end { b"true" } else { b"false" });
+    out.push(b'\n');
+    pad(out, depth);
+    out.push(b'}');
+}
+
 fn enc_oa_sink_write_arguments(out: &mut Vec<u8>, v: &OASinkWriteArguments, depth: i32) {
     out.push(b'{');
     out.push(b'\n');
@@ -474,6 +1161,119 @@ fn enc_oa_history_observer_observe_arguments(out: &mut Vec<u8>, v: &OAHistoryObs
     esc(out, "wait_ms");
     out.extend_from_slice(b": ");
     num(out, v.wait_ms);
+    out.push(b'\n');
+    pad(out, depth);
+    out.push(b'}');
+}
+
+fn enc_oa_application_history_reader_read_arguments(out: &mut Vec<u8>, v: &OAApplicationHistoryReaderReadArguments, depth: i32) {
+    out.push(b'{');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "target");
+    out.extend_from_slice(b": ");
+    enc_application_log_target(out, &v.target, depth + 1);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "cursor");
+    out.extend_from_slice(b": ");
+    esc(out, &v.cursor);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "max_records");
+    out.extend_from_slice(b": ");
+    num(out, v.max_records);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "max_bytes");
+    out.extend_from_slice(b": ");
+    num(out, v.max_bytes);
+    out.push(b'\n');
+    pad(out, depth);
+    out.push(b'}');
+}
+
+fn enc_oa_application_history_observer_observe_arguments(out: &mut Vec<u8>, v: &OAApplicationHistoryObserverObserveArguments, depth: i32) {
+    out.push(b'{');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "target");
+    out.extend_from_slice(b": ");
+    enc_application_log_target(out, &v.target, depth + 1);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "cursor");
+    out.extend_from_slice(b": ");
+    esc(out, &v.cursor);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "max_records");
+    out.extend_from_slice(b": ");
+    num(out, v.max_records);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "max_bytes");
+    out.extend_from_slice(b": ");
+    num(out, v.max_bytes);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "wait_ms");
+    out.extend_from_slice(b": ");
+    num(out, v.wait_ms);
+    out.push(b'\n');
+    pad(out, depth);
+    out.push(b'}');
+}
+
+fn enc_oa_source_reader_sources_arguments(out: &mut Vec<u8>, _v: &OASourceReaderSourcesArguments, _depth: i32) {
+    out.push(b'{');
+    out.push(b'}');
+}
+
+fn enc_oa_source_reader_read_arguments(out: &mut Vec<u8>, v: &OASourceReaderReadArguments, depth: i32) {
+    out.push(b'{');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "source_id");
+    out.extend_from_slice(b": ");
+    esc(out, &v.source_id);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "cursor");
+    out.extend_from_slice(b": ");
+    esc(out, &v.cursor);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "max_records");
+    out.extend_from_slice(b": ");
+    num(out, v.max_records);
+    out.push(b',');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "max_bytes");
+    out.extend_from_slice(b": ");
+    num(out, v.max_bytes);
+    out.push(b'\n');
+    pad(out, depth);
+    out.push(b'}');
+}
+
+fn enc_oa_source_reader_start_at_end_arguments(out: &mut Vec<u8>, v: &OASourceReaderStartAtEndArguments, depth: i32) {
+    out.push(b'{');
+    out.push(b'\n');
+    pad(out, depth + 1);
+    esc(out, "source_id");
+    out.extend_from_slice(b": ");
+    esc(out, &v.source_id);
     out.push(b'\n');
     pad(out, depth);
     out.push(b'}');
@@ -554,6 +1354,7 @@ struct Reader<'a> {
     buf: &'a [u8],
     pos: usize,
     depth: i32,
+    limit: i32,
 }
 
 impl<'a> Reader<'a> {
@@ -573,7 +1374,7 @@ impl<'a> Reader<'a> {
 
     fn enter(&mut self) -> Result<(), Refusal> {
         self.depth += 1;
-        if self.depth > DEPTH_LIMIT {
+        if self.depth > self.limit {
             return self.refuse("depth_exceeded");
         }
         Ok(())
@@ -736,6 +1537,33 @@ impl<'a> Reader<'a> {
         }
         self.pos += word.len();
         Ok(())
+    }
+
+    fn str_list(&mut self) -> Result<Vec<String>, Refusal> {
+        if self.at() != b'[' {
+            return self.refuse("wrong_type");
+        }
+        self.enter()?;
+        self.pos += 1;
+        let mut out = Vec::new();
+        self.skip_ws();
+        if self.at() != b']' {
+            loop {
+                self.skip_ws();
+                out.push(self.string()?);
+                self.skip_ws();
+                if self.at() != b',' {
+                    break;
+                }
+                self.pos += 1;
+            }
+        }
+        if self.at() != b']' {
+            return self.refuse("malformed");
+        }
+        self.pos += 1;
+        self.depth -= 1;
+        Ok(out)
     }
 
     fn raw_value(&mut self) -> Result<Raw, Refusal> {
@@ -1356,6 +2184,621 @@ fn decode_page(r: &mut Reader) -> Result<Page, Refusal> {
     })
 }
 
+fn decode_application_log_target(r: &mut Reader) -> Result<ApplicationLogTarget, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_selection: Option<String> = None;
+    let mut field_program: String = Default::default();
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "selection" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_selection = Some(r.string()?);
+                }
+                "program" => {
+                    if seen & 2 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 2;
+                    field_program = r.string()?;
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    if seen & 1 != 1 {
+        return r.refuse("missing_field");
+    }
+    let Some(field_selection) = field_selection.as_deref().and_then(ApplicationLogSelection::from_wire) else {
+        return r.refuse("bad_enum");
+    };
+    Ok(ApplicationLogTarget {
+        selection: field_selection,
+        program: field_program,
+    })
+}
+
+fn decode_application_log_resource(r: &mut Reader) -> Result<ApplicationLogResource, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_program: String = Default::default();
+    let mut field_captured_file_key: String = Default::default();
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "program" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_program = r.string()?;
+                }
+                "captured_file_key" => {
+                    if seen & 2 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 2;
+                    field_captured_file_key = r.string()?;
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    if seen & 1 != 1 {
+        return r.refuse("missing_field");
+    }
+    Ok(ApplicationLogResource {
+        program: field_program,
+        captured_file_key: field_captured_file_key,
+    })
+}
+
+fn decode_application_log_page(r: &mut Reader) -> Result<ApplicationLogPage, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_outcome: Option<String> = None;
+    let mut field_records: Vec<Record> = Default::default();
+    let mut field_next: String = Default::default();
+    let mut field_at_end: bool = Default::default();
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "outcome" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_outcome = Some(r.string()?);
+                }
+                "records" => {
+                    if seen & 2 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 2;
+                    field_records = decode_list(r, decode_record)?;
+                }
+                "next" => {
+                    if seen & 4 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 4;
+                    field_next = r.string()?;
+                }
+                "at_end" => {
+                    if seen & 8 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 8;
+                    field_at_end = r.boolean()?;
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    if seen & 15 != 15 {
+        return r.refuse("missing_field");
+    }
+    let Some(field_outcome) = field_outcome.as_deref().and_then(HistoryPageOutcome::from_wire) else {
+        return r.refuse("bad_enum");
+    };
+    Ok(ApplicationLogPage {
+        outcome: field_outcome,
+        records: field_records,
+        next: field_next,
+        at_end: field_at_end,
+    })
+}
+
+fn decode_source_descriptor(r: &mut Reader) -> Result<SourceDescriptor, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_id: String = Default::default();
+    let mut field_availability: Option<String> = None;
+    let mut field_limitations: Vec<String> = Default::default();
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "id" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_id = r.string()?;
+                }
+                "availability" => {
+                    if seen & 2 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 2;
+                    field_availability = Some(r.string()?);
+                }
+                "limitations" => {
+                    if seen & 4 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 4;
+                    field_limitations = r.str_list()?;
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    if seen & 7 != 7 {
+        return r.refuse("missing_field");
+    }
+    let Some(field_availability) = field_availability.as_deref().and_then(SourceAvailability::from_wire) else {
+        return r.refuse("bad_enum");
+    };
+    Ok(SourceDescriptor {
+        id: field_id,
+        availability: field_availability,
+        limitations: field_limitations,
+    })
+}
+
+fn decode_source_catalog(r: &mut Reader) -> Result<SourceCatalog, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_sources: Vec<SourceDescriptor> = Default::default();
+    let mut field_outcome: Option<String> = None;
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "sources" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_sources = decode_list(r, decode_source_descriptor)?;
+                }
+                "outcome" => {
+                    if seen & 2 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 2;
+                    field_outcome = Some(r.string()?);
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    if seen & 3 != 3 {
+        return r.refuse("missing_field");
+    }
+    let Some(field_outcome) = field_outcome.as_deref().and_then(SourceCatalogOutcome::from_wire) else {
+        return r.refuse("bad_enum");
+    };
+    Ok(SourceCatalog {
+        sources: field_sources,
+        outcome: field_outcome,
+    })
+}
+
+fn decode_producer_claim(r: &mut Reader) -> Result<ProducerClaim, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_provider: String = Default::default();
+    let mut field_program: String = Default::default();
+    let mut field_exe: String = Default::default();
+    let mut field_user: String = Default::default();
+    let mut field_pid: i64 = Default::default();
+    let mut field_uid: i64 = Default::default();
+    let mut field_gid: i64 = Default::default();
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "provider" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_provider = r.string()?;
+                }
+                "program" => {
+                    if seen & 2 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 2;
+                    field_program = r.string()?;
+                }
+                "exe" => {
+                    if seen & 4 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 4;
+                    field_exe = r.string()?;
+                }
+                "user" => {
+                    if seen & 8 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 8;
+                    field_user = r.string()?;
+                }
+                "pid" => {
+                    if seen & 16 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 16;
+                    field_pid = r.integer(i64::MIN, i64::MAX)?;
+                }
+                "uid" => {
+                    if seen & 32 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 32;
+                    field_uid = r.integer(i64::MIN, i64::MAX)?;
+                }
+                "gid" => {
+                    if seen & 64 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 64;
+                    field_gid = r.integer(i64::MIN, i64::MAX)?;
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    Ok(ProducerClaim {
+        provider: field_provider,
+        program: field_program,
+        exe: field_exe,
+        user: field_user,
+        pid: field_pid,
+        uid: field_uid,
+        gid: field_gid,
+    })
+}
+
+fn decode_source_record(r: &mut Reader) -> Result<SourceRecord, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_source_id: String = Default::default();
+    let mut field_record: Record = Default::default();
+    let mut field_producer: Option<ProducerClaim> = None;
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "source_id" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_source_id = r.string()?;
+                }
+                "record" => {
+                    if seen & 2 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 2;
+                    field_record = decode_record(r)?;
+                }
+                "producer" => {
+                    if seen & 4 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 4;
+                    field_producer = Some(decode_producer_claim(r)?);
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    if seen & 3 != 3 {
+        return r.refuse("missing_field");
+    }
+    Ok(SourceRecord {
+        source_id: field_source_id,
+        record: field_record,
+        producer: field_producer,
+    })
+}
+
+fn decode_source_page(r: &mut Reader) -> Result<SourcePage, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_outcome: Option<String> = None;
+    let mut field_records: Vec<SourceRecord> = Default::default();
+    let mut field_next: String = Default::default();
+    let mut field_at_end: bool = Default::default();
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "outcome" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_outcome = Some(r.string()?);
+                }
+                "records" => {
+                    if seen & 2 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 2;
+                    field_records = decode_list(r, decode_source_record)?;
+                }
+                "next" => {
+                    if seen & 4 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 4;
+                    field_next = r.string()?;
+                }
+                "at_end" => {
+                    if seen & 8 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 8;
+                    field_at_end = r.boolean()?;
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    if seen & 15 != 15 {
+        return r.refuse("missing_field");
+    }
+    let Some(field_outcome) = field_outcome.as_deref().and_then(HistoryPageOutcome::from_wire) else {
+        return r.refuse("bad_enum");
+    };
+    Ok(SourcePage {
+        outcome: field_outcome,
+        records: field_records,
+        next: field_next,
+        at_end: field_at_end,
+    })
+}
+
 fn decode_oa_sink_write_arguments(r: &mut Reader) -> Result<OASinkWriteArguments, Refusal> {
     if r.at() != b'{' {
         return r.refuse("wrong_type");
@@ -1560,6 +3003,344 @@ fn decode_oa_history_observer_observe_arguments(r: &mut Reader) -> Result<OAHist
         max_records: field_max_records,
         max_bytes: field_max_bytes,
         wait_ms: field_wait_ms,
+    })
+}
+
+fn decode_oa_application_history_reader_read_arguments(r: &mut Reader) -> Result<OAApplicationHistoryReaderReadArguments, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_target: Option<ApplicationLogTarget> = None;
+    let mut field_cursor: String = Default::default();
+    let mut field_max_records: i64 = Default::default();
+    let mut field_max_bytes: i64 = Default::default();
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "target" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_target = Some(decode_application_log_target(r)?);
+                }
+                "cursor" => {
+                    if seen & 2 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 2;
+                    field_cursor = r.string()?;
+                }
+                "max_records" => {
+                    if seen & 4 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 4;
+                    field_max_records = r.integer(i64::MIN, i64::MAX)?;
+                }
+                "max_bytes" => {
+                    if seen & 8 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 8;
+                    field_max_bytes = r.integer(i64::MIN, i64::MAX)?;
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    if seen & 15 != 15 {
+        return r.refuse("missing_field");
+    }
+    let Some(field_target) = field_target else {
+        return r.refuse("missing_field");
+    };
+    Ok(OAApplicationHistoryReaderReadArguments {
+        target: field_target,
+        cursor: field_cursor,
+        max_records: field_max_records,
+        max_bytes: field_max_bytes,
+    })
+}
+
+fn decode_oa_application_history_observer_observe_arguments(r: &mut Reader) -> Result<OAApplicationHistoryObserverObserveArguments, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_target: Option<ApplicationLogTarget> = None;
+    let mut field_cursor: String = Default::default();
+    let mut field_max_records: i64 = Default::default();
+    let mut field_max_bytes: i64 = Default::default();
+    let mut field_wait_ms: i64 = Default::default();
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "target" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_target = Some(decode_application_log_target(r)?);
+                }
+                "cursor" => {
+                    if seen & 2 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 2;
+                    field_cursor = r.string()?;
+                }
+                "max_records" => {
+                    if seen & 4 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 4;
+                    field_max_records = r.integer(i64::MIN, i64::MAX)?;
+                }
+                "max_bytes" => {
+                    if seen & 8 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 8;
+                    field_max_bytes = r.integer(i64::MIN, i64::MAX)?;
+                }
+                "wait_ms" => {
+                    if seen & 16 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 16;
+                    field_wait_ms = r.integer(i64::MIN, i64::MAX)?;
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    if seen & 31 != 31 {
+        return r.refuse("missing_field");
+    }
+    let Some(field_target) = field_target else {
+        return r.refuse("missing_field");
+    };
+    Ok(OAApplicationHistoryObserverObserveArguments {
+        target: field_target,
+        cursor: field_cursor,
+        max_records: field_max_records,
+        max_bytes: field_max_bytes,
+        wait_ms: field_wait_ms,
+    })
+}
+
+fn decode_oa_source_reader_sources_arguments(r: &mut Reader) -> Result<OASourceReaderSourcesArguments, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    r.skip_ws();
+    if r.at() != b'}' {
+        if r.at() != b'"' {
+            return r.refuse("malformed");
+        }
+        r.string()?;
+        r.skip_ws();
+        if r.at() != b':' {
+            return r.refuse("malformed");
+        }
+        return r.refuse("unknown_field");
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    Ok(OASourceReaderSourcesArguments {})
+}
+
+fn decode_oa_source_reader_read_arguments(r: &mut Reader) -> Result<OASourceReaderReadArguments, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_source_id: String = Default::default();
+    let mut field_cursor: String = Default::default();
+    let mut field_max_records: i64 = Default::default();
+    let mut field_max_bytes: i64 = Default::default();
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "source_id" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_source_id = r.string()?;
+                }
+                "cursor" => {
+                    if seen & 2 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 2;
+                    field_cursor = r.string()?;
+                }
+                "max_records" => {
+                    if seen & 4 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 4;
+                    field_max_records = r.integer(i64::MIN, i64::MAX)?;
+                }
+                "max_bytes" => {
+                    if seen & 8 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 8;
+                    field_max_bytes = r.integer(i64::MIN, i64::MAX)?;
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    if seen & 15 != 15 {
+        return r.refuse("missing_field");
+    }
+    Ok(OASourceReaderReadArguments {
+        source_id: field_source_id,
+        cursor: field_cursor,
+        max_records: field_max_records,
+        max_bytes: field_max_bytes,
+    })
+}
+
+fn decode_oa_source_reader_start_at_end_arguments(r: &mut Reader) -> Result<OASourceReaderStartAtEndArguments, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_source_id: String = Default::default();
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "source_id" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_source_id = r.string()?;
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    if seen & 1 != 1 {
+        return r.refuse("missing_field");
+    }
+    Ok(OASourceReaderStartAtEndArguments {
+        source_id: field_source_id,
     })
 }
 
@@ -1911,8 +3692,293 @@ fn decode_oa_history_observer_observe_result(r: &mut Reader) -> Result<OAHistory
     })
 }
 
+fn decode_oa_application_history_reader_read_result(r: &mut Reader) -> Result<OAApplicationHistoryReaderReadResult, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_value: Option<ApplicationLogPage> = None;
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "value" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_value = Some(decode_application_log_page(r)?);
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    if seen & 1 != 1 {
+        return r.refuse("missing_field");
+    }
+    let Some(field_value) = field_value else {
+        return r.refuse("missing_field");
+    };
+    Ok(OAApplicationHistoryReaderReadResult {
+        value: field_value,
+    })
+}
+
+fn decode_oa_application_history_observer_observe_result(r: &mut Reader) -> Result<OAApplicationHistoryObserverObserveResult, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_value: Option<ApplicationLogPage> = None;
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "value" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_value = Some(decode_application_log_page(r)?);
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    if seen & 1 != 1 {
+        return r.refuse("missing_field");
+    }
+    let Some(field_value) = field_value else {
+        return r.refuse("missing_field");
+    };
+    Ok(OAApplicationHistoryObserverObserveResult {
+        value: field_value,
+    })
+}
+
+fn decode_oa_source_reader_sources_result(r: &mut Reader) -> Result<OASourceReaderSourcesResult, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_value: Option<SourceCatalog> = None;
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "value" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_value = Some(decode_source_catalog(r)?);
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    if seen & 1 != 1 {
+        return r.refuse("missing_field");
+    }
+    let Some(field_value) = field_value else {
+        return r.refuse("missing_field");
+    };
+    Ok(OASourceReaderSourcesResult {
+        value: field_value,
+    })
+}
+
+fn decode_oa_source_reader_read_result(r: &mut Reader) -> Result<OASourceReaderReadResult, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_value: Option<SourcePage> = None;
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "value" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_value = Some(decode_source_page(r)?);
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    if seen & 1 != 1 {
+        return r.refuse("missing_field");
+    }
+    let Some(field_value) = field_value else {
+        return r.refuse("missing_field");
+    };
+    Ok(OASourceReaderReadResult {
+        value: field_value,
+    })
+}
+
+fn decode_oa_source_reader_start_at_end_result(r: &mut Reader) -> Result<OASourceReaderStartAtEndResult, Refusal> {
+    if r.at() != b'{' {
+        return r.refuse("wrong_type");
+    }
+    r.enter()?;
+    r.pos += 1;
+    let mut field_value: Option<SourcePage> = None;
+    let mut seen: u32 = 0;
+    r.skip_ws();
+    if r.at() != b'}' {
+        loop {
+            r.skip_ws();
+            if r.at() != b'"' {
+                return r.refuse("malformed");
+            }
+            let key = r.string()?;
+            r.skip_ws();
+            if r.at() != b':' {
+                return r.refuse("malformed");
+            }
+            r.pos += 1;
+            r.skip_ws();
+            match key.as_str() {
+                "value" => {
+                    if seen & 1 != 0 {
+                        return r.refuse("duplicate_field");
+                    }
+                    seen |= 1;
+                    field_value = Some(decode_source_page(r)?);
+                }
+                _ => {
+                    return r.refuse("unknown_field");
+                }
+            }
+            r.skip_ws();
+            if r.at() != b',' {
+                break;
+            }
+            r.pos += 1;
+        }
+    }
+    if r.at() != b'}' {
+        return r.refuse("malformed");
+    }
+    r.pos += 1;
+    r.depth -= 1;
+    if seen & 1 != 1 {
+        return r.refuse("missing_field");
+    }
+    let Some(field_value) = field_value else {
+        return r.refuse("missing_field");
+    };
+    Ok(OASourceReaderStartAtEndResult {
+        value: field_value,
+    })
+}
+
 pub fn decode(data: &[u8]) -> Result<Record, Refusal> {
-    let mut r = Reader { buf: data, pos: 0, depth: 0 };
+    let mut r = Reader { buf: data, pos: 0, depth: 0, limit: DEPTH_LIMIT };
     r.skip_ws();
     let v = decode_record(&mut r)?;
     r.skip_ws();
@@ -1927,11 +3993,15 @@ fn service_check_attestation(_v: &Attestation) -> Result<(), Refusal> {
 }
 
 fn service_check_record(v: &Record) -> Result<(), Refusal> {
-    let r = Reader { buf: &[], pos: 0, depth: 0 };
+    let r = Reader { buf: &[], pos: 0, depth: 0, limit: DEPTH_LIMIT };
     if v.schema != 1 { return r.refuse("bad_schema"); }
     for value in &v.identity {
         service_check_attestation(value)?;
     }
+    Ok(())
+}
+
+fn service_check_application_log_target(_v: &ApplicationLogTarget) -> Result<(), Refusal> {
     Ok(())
 }
 
@@ -1945,6 +4015,28 @@ fn service_check_oa_history_reader_read_arguments(_v: &OAHistoryReaderReadArgume
 }
 
 fn service_check_oa_history_observer_observe_arguments(_v: &OAHistoryObserverObserveArguments) -> Result<(), Refusal> {
+    Ok(())
+}
+
+fn service_check_oa_application_history_reader_read_arguments(v: &OAApplicationHistoryReaderReadArguments) -> Result<(), Refusal> {
+    service_check_application_log_target(&v.target)?;
+    Ok(())
+}
+
+fn service_check_oa_application_history_observer_observe_arguments(v: &OAApplicationHistoryObserverObserveArguments) -> Result<(), Refusal> {
+    service_check_application_log_target(&v.target)?;
+    Ok(())
+}
+
+fn service_check_oa_source_reader_sources_arguments(_v: &OASourceReaderSourcesArguments) -> Result<(), Refusal> {
+    Ok(())
+}
+
+fn service_check_oa_source_reader_read_arguments(_v: &OASourceReaderReadArguments) -> Result<(), Refusal> {
+    Ok(())
+}
+
+fn service_check_oa_source_reader_start_at_end_arguments(_v: &OASourceReaderStartAtEndArguments) -> Result<(), Refusal> {
     Ok(())
 }
 
@@ -1971,7 +4063,7 @@ pub enum CallError<E> {
 }
 
 fn service_decode<T>(data: &[u8], decode: fn(&mut Reader) -> Result<T, Refusal>) -> Result<T, Refusal> {
-    let mut r = Reader { buf: data, pos: 0, depth: 0 };
+    let mut r = Reader { buf: data, pos: 0, depth: 0, limit: DEPTH_LIMIT };
     r.skip_ws();
     let value = decode(&mut r)?;
     r.skip_ws();
@@ -2138,6 +4230,858 @@ impl<T: FrameTransport> HistoryObserver for HistoryObserverClient<T> {
     }
 }
 
+pub trait ApplicationHistoryReader {
+    type Error;
+    /// Read one or all emitting programs. Bounds are 1..256 returned records
+    /// and 1..65536 encoded Record bytes; scan work is independently bounded.
+    /// Empty cursor starts earliest retained history; end fixes the current
+    /// physical end. One consistent Rights snapshot governs selection and
+    /// concrete outgoing emitters. No fallback to account-wide reader@1 is
+    /// permitted.
+    fn read(&self, target: ApplicationLogTarget, cursor: String, max_records: i64, max_bytes: i64) -> Result<ApplicationLogPage, Self::Error>;
+}
+
+pub struct ApplicationHistoryReaderClient<T> {
+    transport: T,
+}
+
+impl<T> ApplicationHistoryReaderClient<T> {
+    pub fn new(transport: T) -> Self {
+        Self { transport }
+    }
+
+    pub fn transport(&self) -> &T {
+        &self.transport
+    }
+}
+
+impl<T: FrameTransport> ApplicationHistoryReader for ApplicationHistoryReaderClient<T> {
+    type Error = CallError<T::Error>;
+    fn read(&self, target: ApplicationLogTarget, cursor: String, max_records: i64, max_bytes: i64) -> Result<ApplicationLogPage, Self::Error> {
+        let args = OAApplicationHistoryReaderReadArguments { target, cursor, max_records, max_bytes };
+        let arguments = service_encode(&args, service_check_oa_application_history_reader_read_arguments, enc_oa_application_history_reader_read_arguments, decode_oa_application_history_reader_read_arguments).map_err(CallError::Refusal)?;
+        let request = OAServiceFrame { version: 1, service: "abstraction.logging/reader@2".into(), method: "Read".into(), arguments };
+        let frame = service_encode(&request, service_check_oa_service_frame, enc_oa_service_frame, decode_oa_service_frame).map_err(CallError::Refusal)?;
+        let reply = self.transport.exchange_frame(&frame).map_err(CallError::Transport)?;
+        let reply = service_decode(&reply, decode_oa_service_reply).map_err(CallError::Refusal)?;
+        if reply.version != 1 {
+            return Err(CallError::Dispatch("unknown_version"));
+        }
+        if reply.service != "abstraction.logging/reader@2" || reply.method != "Read" {
+            return Err(CallError::Dispatch("mismatched_response"));
+        }
+        if !reply.ok {
+            let error = service_decode(&reply.payload, decode_oa_service_error).map_err(CallError::Refusal)?;
+            if error.code.is_empty() {
+                return Err(CallError::Dispatch("invalid_error"));
+            }
+            return Err(CallError::Service(ServiceError { code: error.code, message: error.message }));
+        }
+        let result = service_decode(&reply.payload, decode_oa_application_history_reader_read_result).map_err(CallError::Refusal)?;
+        Ok(result.value)
+    }
+}
+
+pub trait ApplicationHistoryObserver {
+    type Error;
+    /// Read with reader@2 semantics, waiting once at an empty physical end for
+    /// 0..30000 ms. Unrelated writes can produce filtered progress.
+    /// Cancellation, fixed deadline and bounded waiter capacity apply.
+    /// Authorization is reevaluated before delivery; no decision is retained
+    /// across waits or pages.
+    fn observe(&self, target: ApplicationLogTarget, cursor: String, max_records: i64, max_bytes: i64, wait_ms: i64) -> Result<ApplicationLogPage, Self::Error>;
+}
+
+pub struct ApplicationHistoryObserverClient<T> {
+    transport: T,
+}
+
+impl<T> ApplicationHistoryObserverClient<T> {
+    pub fn new(transport: T) -> Self {
+        Self { transport }
+    }
+
+    pub fn transport(&self) -> &T {
+        &self.transport
+    }
+}
+
+impl<T: FrameTransport> ApplicationHistoryObserver for ApplicationHistoryObserverClient<T> {
+    type Error = CallError<T::Error>;
+    fn observe(&self, target: ApplicationLogTarget, cursor: String, max_records: i64, max_bytes: i64, wait_ms: i64) -> Result<ApplicationLogPage, Self::Error> {
+        let args = OAApplicationHistoryObserverObserveArguments { target, cursor, max_records, max_bytes, wait_ms };
+        let arguments = service_encode(&args, service_check_oa_application_history_observer_observe_arguments, enc_oa_application_history_observer_observe_arguments, decode_oa_application_history_observer_observe_arguments).map_err(CallError::Refusal)?;
+        let request = OAServiceFrame { version: 1, service: "abstraction.logging/observer@2".into(), method: "Observe".into(), arguments };
+        let frame = service_encode(&request, service_check_oa_service_frame, enc_oa_service_frame, decode_oa_service_frame).map_err(CallError::Refusal)?;
+        let reply = self.transport.exchange_frame(&frame).map_err(CallError::Transport)?;
+        let reply = service_decode(&reply, decode_oa_service_reply).map_err(CallError::Refusal)?;
+        if reply.version != 1 {
+            return Err(CallError::Dispatch("unknown_version"));
+        }
+        if reply.service != "abstraction.logging/observer@2" || reply.method != "Observe" {
+            return Err(CallError::Dispatch("mismatched_response"));
+        }
+        if !reply.ok {
+            let error = service_decode(&reply.payload, decode_oa_service_error).map_err(CallError::Refusal)?;
+            if error.code.is_empty() {
+                return Err(CallError::Dispatch("invalid_error"));
+            }
+            return Err(CallError::Service(ServiceError { code: error.code, message: error.message }));
+        }
+        let result = service_decode(&reply.payload, decode_oa_application_history_observer_observe_result).map_err(CallError::Refusal)?;
+        Ok(result.value)
+    }
+}
+
+/// Authorized bounded reads from fixed, read-only operating-system log sources.
+pub trait SourceReader {
+    type Error;
+    /// List the runtime's fixed platform source identifiers and current access
+    /// status. Source IDs are not paths or query expressions. Per-source OA
+    /// rights are checked before native probing; a refused source is listed as
+    /// permission_denied without a native access attempt.
+    fn sources(&self) -> Result<SourceCatalog, Self::Error>;
+    /// Read one fixed source with bounds of 1..256 entries and 1..65536 encoded
+    /// SourceRecord bytes. The service checks the exact source-specific right
+    /// before native access. A provider without a source returns unsupported;
+    /// OA policy denial returns not_permitted, known native access denial
+    /// returns forbidden and uncertainty returns unavailable. Invalid semantic
+    /// bounds return invalid. Refusals contain no records, preserve the
+    /// supplied cursor and never announce end. Empty cursor starts at the
+    /// earliest visible retained entry the native API exposes. Cursors bind
+    /// source ID and reader instance; source mismatch, restart or retention
+    /// loss returns gap and preserves the cursor. No cross-source ordering,
+    /// complete-capture claim or observation guarantee is made.
+    fn read(&self, source_id: String, cursor: String, max_records: i64, max_bytes: i64) -> Result<SourcePage, Self::Error>;
+    /// Return an opaque baseline cursor at the source's current end without
+    /// returning records. The exact source-specific right is checked before
+    /// native access and rechecked before the cursor is returned. A source
+    /// without a safe current-position operation returns unsupported. Use the
+    /// returned cursor with Read to request entries that follow this observed
+    /// end; an empty source produces a valid empty baseline. If no native entry
+    /// exists at the baseline, a later retention loss before the first read may
+    /// be undetectable. Cursors bind source ID and reader instance; restart or
+    /// detectable retention loss returns gap. This is a cursor operation, not a
+    /// watch or complete-capture guarantee.
+    fn start_at_end(&self, source_id: String) -> Result<SourcePage, Self::Error>;
+}
+
+pub struct SourceReaderClient<T> {
+    transport: T,
+}
+
+impl<T> SourceReaderClient<T> {
+    pub fn new(transport: T) -> Self {
+        Self { transport }
+    }
+
+    pub fn transport(&self) -> &T {
+        &self.transport
+    }
+}
+
+impl<T: FrameTransport> SourceReader for SourceReaderClient<T> {
+    type Error = CallError<T::Error>;
+    fn sources(&self) -> Result<SourceCatalog, Self::Error> {
+        let args = OASourceReaderSourcesArguments {};
+        let arguments = service_encode(&args, service_check_oa_source_reader_sources_arguments, enc_oa_source_reader_sources_arguments, decode_oa_source_reader_sources_arguments).map_err(CallError::Refusal)?;
+        let request = OAServiceFrame { version: 1, service: "abstraction.logging/source-reader@1".into(), method: "Sources".into(), arguments };
+        let frame = service_encode(&request, service_check_oa_service_frame, enc_oa_service_frame, decode_oa_service_frame).map_err(CallError::Refusal)?;
+        let reply = self.transport.exchange_frame(&frame).map_err(CallError::Transport)?;
+        let reply = service_decode(&reply, decode_oa_service_reply).map_err(CallError::Refusal)?;
+        if reply.version != 1 {
+            return Err(CallError::Dispatch("unknown_version"));
+        }
+        if reply.service != "abstraction.logging/source-reader@1" || reply.method != "Sources" {
+            return Err(CallError::Dispatch("mismatched_response"));
+        }
+        if !reply.ok {
+            let error = service_decode(&reply.payload, decode_oa_service_error).map_err(CallError::Refusal)?;
+            if error.code.is_empty() {
+                return Err(CallError::Dispatch("invalid_error"));
+            }
+            return Err(CallError::Service(ServiceError { code: error.code, message: error.message }));
+        }
+        let result = service_decode(&reply.payload, decode_oa_source_reader_sources_result).map_err(CallError::Refusal)?;
+        Ok(result.value)
+    }
+
+    fn read(&self, source_id: String, cursor: String, max_records: i64, max_bytes: i64) -> Result<SourcePage, Self::Error> {
+        let args = OASourceReaderReadArguments { source_id, cursor, max_records, max_bytes };
+        let arguments = service_encode(&args, service_check_oa_source_reader_read_arguments, enc_oa_source_reader_read_arguments, decode_oa_source_reader_read_arguments).map_err(CallError::Refusal)?;
+        let request = OAServiceFrame { version: 1, service: "abstraction.logging/source-reader@1".into(), method: "Read".into(), arguments };
+        let frame = service_encode(&request, service_check_oa_service_frame, enc_oa_service_frame, decode_oa_service_frame).map_err(CallError::Refusal)?;
+        let reply = self.transport.exchange_frame(&frame).map_err(CallError::Transport)?;
+        let reply = service_decode(&reply, decode_oa_service_reply).map_err(CallError::Refusal)?;
+        if reply.version != 1 {
+            return Err(CallError::Dispatch("unknown_version"));
+        }
+        if reply.service != "abstraction.logging/source-reader@1" || reply.method != "Read" {
+            return Err(CallError::Dispatch("mismatched_response"));
+        }
+        if !reply.ok {
+            let error = service_decode(&reply.payload, decode_oa_service_error).map_err(CallError::Refusal)?;
+            if error.code.is_empty() {
+                return Err(CallError::Dispatch("invalid_error"));
+            }
+            return Err(CallError::Service(ServiceError { code: error.code, message: error.message }));
+        }
+        let result = service_decode(&reply.payload, decode_oa_source_reader_read_result).map_err(CallError::Refusal)?;
+        Ok(result.value)
+    }
+
+    fn start_at_end(&self, source_id: String) -> Result<SourcePage, Self::Error> {
+        let args = OASourceReaderStartAtEndArguments { source_id };
+        let arguments = service_encode(&args, service_check_oa_source_reader_start_at_end_arguments, enc_oa_source_reader_start_at_end_arguments, decode_oa_source_reader_start_at_end_arguments).map_err(CallError::Refusal)?;
+        let request = OAServiceFrame { version: 1, service: "abstraction.logging/source-reader@1".into(), method: "StartAtEnd".into(), arguments };
+        let frame = service_encode(&request, service_check_oa_service_frame, enc_oa_service_frame, decode_oa_service_frame).map_err(CallError::Refusal)?;
+        let reply = self.transport.exchange_frame(&frame).map_err(CallError::Transport)?;
+        let reply = service_decode(&reply, decode_oa_service_reply).map_err(CallError::Refusal)?;
+        if reply.version != 1 {
+            return Err(CallError::Dispatch("unknown_version"));
+        }
+        if reply.service != "abstraction.logging/source-reader@1" || reply.method != "StartAtEnd" {
+            return Err(CallError::Dispatch("mismatched_response"));
+        }
+        if !reply.ok {
+            let error = service_decode(&reply.payload, decode_oa_service_error).map_err(CallError::Refusal)?;
+            if error.code.is_empty() {
+                return Err(CallError::Dispatch("invalid_error"));
+            }
+            return Err(CallError::Service(ServiceError { code: error.code, message: error.message }));
+        }
+        let result = service_decode(&reply.payload, decode_oa_source_reader_start_at_end_result).map_err(CallError::Refusal)?;
+        Ok(result.value)
+    }
+}
+
+fn named_encode_attestation(v: &Attestation, depth: i32) -> Result<Vec<u8>, Refusal> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut out = Vec::new();
+        enc_attestation(&mut out, v, depth);
+        out
+    })) {
+        Ok(out) => Ok(out),
+        Err(p) => match p.downcast::<Refusal>() {
+            Ok(e) => Err(*e),
+            Err(p) => std::panic::resume_unwind(p),
+        },
+    }
+}
+
+fn decode_attestation_at(data: &[u8], depth: i32, limit: i32) -> Result<(Attestation, usize), Refusal> {
+    let mut r = Reader { buf: data, pos: 0, depth, limit: if limit < DEPTH_LIMIT { limit } else { DEPTH_LIMIT } };
+    if depth < 0 || limit < 1 {
+        return r.refuse("depth_exceeded");
+    }
+    r.skip_ws();
+    let v = decode_attestation(&mut r)?;
+    Ok((v, r.pos))
+}
+
+fn check_attestation(v: &Attestation, depth: i32, limit: i32) -> Result<(), Refusal> {
+    if depth < 0 || limit < 1 {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_attestation(v, depth)?;
+    decode_attestation_at(&out, depth, limit).map(|_| ())
+}
+
+fn encode_attestation_at(v: &Attestation, depth: i32) -> Result<Vec<u8>, Refusal> {
+    if !(0..DEPTH_LIMIT).contains(&depth) {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_attestation(v, depth)?;
+    decode_attestation_at(&out, depth, DEPTH_LIMIT)?;
+    Ok(out)
+}
+
+pub fn encode_attestation_document(v: &Attestation) -> Result<Vec<u8>, Refusal> {
+    let mut out = encode_attestation_at(v, 0)?;
+    out.push(b'\n');
+    Ok(out)
+}
+
+pub fn decode_attestation_document(data: &[u8]) -> Result<Attestation, Refusal> {
+    let (v, n) = decode_attestation_at(data, 0, DEPTH_LIMIT)?;
+    let mut r = Reader { buf: data, pos: n, depth: 0, limit: DEPTH_LIMIT };
+    r.skip_ws();
+    if r.pos != data.len() {
+        return r.refuse("trailing_bytes");
+    }
+    Ok(v)
+}
+
+fn named_encode_record(v: &Record, depth: i32) -> Result<Vec<u8>, Refusal> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut out = Vec::new();
+        enc_record(&mut out, v, depth);
+        out
+    })) {
+        Ok(out) => Ok(out),
+        Err(p) => match p.downcast::<Refusal>() {
+            Ok(e) => Err(*e),
+            Err(p) => std::panic::resume_unwind(p),
+        },
+    }
+}
+
+fn decode_record_at(data: &[u8], depth: i32, limit: i32) -> Result<(Record, usize), Refusal> {
+    let mut r = Reader { buf: data, pos: 0, depth, limit: if limit < DEPTH_LIMIT { limit } else { DEPTH_LIMIT } };
+    if depth < 0 || limit < 1 {
+        return r.refuse("depth_exceeded");
+    }
+    r.skip_ws();
+    let v = decode_record(&mut r)?;
+    Ok((v, r.pos))
+}
+
+fn check_record(v: &Record, depth: i32, limit: i32) -> Result<(), Refusal> {
+    if depth < 0 || limit < 1 {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_record(v, depth)?;
+    decode_record_at(&out, depth, limit).map(|_| ())
+}
+
+fn encode_record_at(v: &Record, depth: i32) -> Result<Vec<u8>, Refusal> {
+    if !(0..DEPTH_LIMIT).contains(&depth) {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_record(v, depth)?;
+    decode_record_at(&out, depth, DEPTH_LIMIT)?;
+    Ok(out)
+}
+
+pub fn encode_record_document(v: &Record) -> Result<Vec<u8>, Refusal> {
+    let mut out = encode_record_at(v, 0)?;
+    out.push(b'\n');
+    Ok(out)
+}
+
+pub fn decode_record_document(data: &[u8]) -> Result<Record, Refusal> {
+    let (v, n) = decode_record_at(data, 0, DEPTH_LIMIT)?;
+    let mut r = Reader { buf: data, pos: n, depth: 0, limit: DEPTH_LIMIT };
+    r.skip_ws();
+    if r.pos != data.len() {
+        return r.refuse("trailing_bytes");
+    }
+    Ok(v)
+}
+
+fn named_encode_page(v: &Page, depth: i32) -> Result<Vec<u8>, Refusal> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut out = Vec::new();
+        enc_page(&mut out, v, depth);
+        out
+    })) {
+        Ok(out) => Ok(out),
+        Err(p) => match p.downcast::<Refusal>() {
+            Ok(e) => Err(*e),
+            Err(p) => std::panic::resume_unwind(p),
+        },
+    }
+}
+
+fn decode_page_at(data: &[u8], depth: i32, limit: i32) -> Result<(Page, usize), Refusal> {
+    let mut r = Reader { buf: data, pos: 0, depth, limit: if limit < DEPTH_LIMIT { limit } else { DEPTH_LIMIT } };
+    if depth < 0 || limit < 1 {
+        return r.refuse("depth_exceeded");
+    }
+    r.skip_ws();
+    let v = decode_page(&mut r)?;
+    Ok((v, r.pos))
+}
+
+fn check_page(v: &Page, depth: i32, limit: i32) -> Result<(), Refusal> {
+    if depth < 0 || limit < 1 {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_page(v, depth)?;
+    decode_page_at(&out, depth, limit).map(|_| ())
+}
+
+fn encode_page_at(v: &Page, depth: i32) -> Result<Vec<u8>, Refusal> {
+    if !(0..DEPTH_LIMIT).contains(&depth) {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_page(v, depth)?;
+    decode_page_at(&out, depth, DEPTH_LIMIT)?;
+    Ok(out)
+}
+
+pub fn encode_page_document(v: &Page) -> Result<Vec<u8>, Refusal> {
+    let mut out = encode_page_at(v, 0)?;
+    out.push(b'\n');
+    Ok(out)
+}
+
+pub fn decode_page_document(data: &[u8]) -> Result<Page, Refusal> {
+    let (v, n) = decode_page_at(data, 0, DEPTH_LIMIT)?;
+    let mut r = Reader { buf: data, pos: n, depth: 0, limit: DEPTH_LIMIT };
+    r.skip_ws();
+    if r.pos != data.len() {
+        return r.refuse("trailing_bytes");
+    }
+    Ok(v)
+}
+
+fn named_encode_application_log_target(v: &ApplicationLogTarget, depth: i32) -> Result<Vec<u8>, Refusal> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut out = Vec::new();
+        enc_application_log_target(&mut out, v, depth);
+        out
+    })) {
+        Ok(out) => Ok(out),
+        Err(p) => match p.downcast::<Refusal>() {
+            Ok(e) => Err(*e),
+            Err(p) => std::panic::resume_unwind(p),
+        },
+    }
+}
+
+fn decode_application_log_target_at(data: &[u8], depth: i32, limit: i32) -> Result<(ApplicationLogTarget, usize), Refusal> {
+    let mut r = Reader { buf: data, pos: 0, depth, limit: if limit < DEPTH_LIMIT { limit } else { DEPTH_LIMIT } };
+    if depth < 0 || limit < 1 {
+        return r.refuse("depth_exceeded");
+    }
+    r.skip_ws();
+    let v = decode_application_log_target(&mut r)?;
+    Ok((v, r.pos))
+}
+
+fn check_application_log_target(v: &ApplicationLogTarget, depth: i32, limit: i32) -> Result<(), Refusal> {
+    if depth < 0 || limit < 1 {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_application_log_target(v, depth)?;
+    decode_application_log_target_at(&out, depth, limit).map(|_| ())
+}
+
+fn encode_application_log_target_at(v: &ApplicationLogTarget, depth: i32) -> Result<Vec<u8>, Refusal> {
+    if !(0..DEPTH_LIMIT).contains(&depth) {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_application_log_target(v, depth)?;
+    decode_application_log_target_at(&out, depth, DEPTH_LIMIT)?;
+    Ok(out)
+}
+
+pub fn encode_application_log_target_document(v: &ApplicationLogTarget) -> Result<Vec<u8>, Refusal> {
+    let mut out = encode_application_log_target_at(v, 0)?;
+    out.push(b'\n');
+    Ok(out)
+}
+
+pub fn decode_application_log_target_document(data: &[u8]) -> Result<ApplicationLogTarget, Refusal> {
+    let (v, n) = decode_application_log_target_at(data, 0, DEPTH_LIMIT)?;
+    let mut r = Reader { buf: data, pos: n, depth: 0, limit: DEPTH_LIMIT };
+    r.skip_ws();
+    if r.pos != data.len() {
+        return r.refuse("trailing_bytes");
+    }
+    Ok(v)
+}
+
+fn named_encode_application_log_resource(v: &ApplicationLogResource, depth: i32) -> Result<Vec<u8>, Refusal> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut out = Vec::new();
+        enc_application_log_resource(&mut out, v, depth);
+        out
+    })) {
+        Ok(out) => Ok(out),
+        Err(p) => match p.downcast::<Refusal>() {
+            Ok(e) => Err(*e),
+            Err(p) => std::panic::resume_unwind(p),
+        },
+    }
+}
+
+fn decode_application_log_resource_at(data: &[u8], depth: i32, limit: i32) -> Result<(ApplicationLogResource, usize), Refusal> {
+    let mut r = Reader { buf: data, pos: 0, depth, limit: if limit < DEPTH_LIMIT { limit } else { DEPTH_LIMIT } };
+    if depth < 0 || limit < 1 {
+        return r.refuse("depth_exceeded");
+    }
+    r.skip_ws();
+    let v = decode_application_log_resource(&mut r)?;
+    Ok((v, r.pos))
+}
+
+fn check_application_log_resource(v: &ApplicationLogResource, depth: i32, limit: i32) -> Result<(), Refusal> {
+    if depth < 0 || limit < 1 {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_application_log_resource(v, depth)?;
+    decode_application_log_resource_at(&out, depth, limit).map(|_| ())
+}
+
+fn encode_application_log_resource_at(v: &ApplicationLogResource, depth: i32) -> Result<Vec<u8>, Refusal> {
+    if !(0..DEPTH_LIMIT).contains(&depth) {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_application_log_resource(v, depth)?;
+    decode_application_log_resource_at(&out, depth, DEPTH_LIMIT)?;
+    Ok(out)
+}
+
+pub fn encode_application_log_resource_document(v: &ApplicationLogResource) -> Result<Vec<u8>, Refusal> {
+    let mut out = encode_application_log_resource_at(v, 0)?;
+    out.push(b'\n');
+    Ok(out)
+}
+
+pub fn decode_application_log_resource_document(data: &[u8]) -> Result<ApplicationLogResource, Refusal> {
+    let (v, n) = decode_application_log_resource_at(data, 0, DEPTH_LIMIT)?;
+    let mut r = Reader { buf: data, pos: n, depth: 0, limit: DEPTH_LIMIT };
+    r.skip_ws();
+    if r.pos != data.len() {
+        return r.refuse("trailing_bytes");
+    }
+    Ok(v)
+}
+
+fn named_encode_application_log_page(v: &ApplicationLogPage, depth: i32) -> Result<Vec<u8>, Refusal> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut out = Vec::new();
+        enc_application_log_page(&mut out, v, depth);
+        out
+    })) {
+        Ok(out) => Ok(out),
+        Err(p) => match p.downcast::<Refusal>() {
+            Ok(e) => Err(*e),
+            Err(p) => std::panic::resume_unwind(p),
+        },
+    }
+}
+
+fn decode_application_log_page_at(data: &[u8], depth: i32, limit: i32) -> Result<(ApplicationLogPage, usize), Refusal> {
+    let mut r = Reader { buf: data, pos: 0, depth, limit: if limit < DEPTH_LIMIT { limit } else { DEPTH_LIMIT } };
+    if depth < 0 || limit < 1 {
+        return r.refuse("depth_exceeded");
+    }
+    r.skip_ws();
+    let v = decode_application_log_page(&mut r)?;
+    Ok((v, r.pos))
+}
+
+fn check_application_log_page(v: &ApplicationLogPage, depth: i32, limit: i32) -> Result<(), Refusal> {
+    if depth < 0 || limit < 1 {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_application_log_page(v, depth)?;
+    decode_application_log_page_at(&out, depth, limit).map(|_| ())
+}
+
+fn encode_application_log_page_at(v: &ApplicationLogPage, depth: i32) -> Result<Vec<u8>, Refusal> {
+    if !(0..DEPTH_LIMIT).contains(&depth) {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_application_log_page(v, depth)?;
+    decode_application_log_page_at(&out, depth, DEPTH_LIMIT)?;
+    Ok(out)
+}
+
+pub fn encode_application_log_page_document(v: &ApplicationLogPage) -> Result<Vec<u8>, Refusal> {
+    let mut out = encode_application_log_page_at(v, 0)?;
+    out.push(b'\n');
+    Ok(out)
+}
+
+pub fn decode_application_log_page_document(data: &[u8]) -> Result<ApplicationLogPage, Refusal> {
+    let (v, n) = decode_application_log_page_at(data, 0, DEPTH_LIMIT)?;
+    let mut r = Reader { buf: data, pos: n, depth: 0, limit: DEPTH_LIMIT };
+    r.skip_ws();
+    if r.pos != data.len() {
+        return r.refuse("trailing_bytes");
+    }
+    Ok(v)
+}
+
+fn named_encode_source_descriptor(v: &SourceDescriptor, depth: i32) -> Result<Vec<u8>, Refusal> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut out = Vec::new();
+        enc_source_descriptor(&mut out, v, depth);
+        out
+    })) {
+        Ok(out) => Ok(out),
+        Err(p) => match p.downcast::<Refusal>() {
+            Ok(e) => Err(*e),
+            Err(p) => std::panic::resume_unwind(p),
+        },
+    }
+}
+
+fn decode_source_descriptor_at(data: &[u8], depth: i32, limit: i32) -> Result<(SourceDescriptor, usize), Refusal> {
+    let mut r = Reader { buf: data, pos: 0, depth, limit: if limit < DEPTH_LIMIT { limit } else { DEPTH_LIMIT } };
+    if depth < 0 || limit < 1 {
+        return r.refuse("depth_exceeded");
+    }
+    r.skip_ws();
+    let v = decode_source_descriptor(&mut r)?;
+    Ok((v, r.pos))
+}
+
+fn check_source_descriptor(v: &SourceDescriptor, depth: i32, limit: i32) -> Result<(), Refusal> {
+    if depth < 0 || limit < 1 {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_source_descriptor(v, depth)?;
+    decode_source_descriptor_at(&out, depth, limit).map(|_| ())
+}
+
+fn encode_source_descriptor_at(v: &SourceDescriptor, depth: i32) -> Result<Vec<u8>, Refusal> {
+    if !(0..DEPTH_LIMIT).contains(&depth) {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_source_descriptor(v, depth)?;
+    decode_source_descriptor_at(&out, depth, DEPTH_LIMIT)?;
+    Ok(out)
+}
+
+pub fn encode_source_descriptor_document(v: &SourceDescriptor) -> Result<Vec<u8>, Refusal> {
+    let mut out = encode_source_descriptor_at(v, 0)?;
+    out.push(b'\n');
+    Ok(out)
+}
+
+pub fn decode_source_descriptor_document(data: &[u8]) -> Result<SourceDescriptor, Refusal> {
+    let (v, n) = decode_source_descriptor_at(data, 0, DEPTH_LIMIT)?;
+    let mut r = Reader { buf: data, pos: n, depth: 0, limit: DEPTH_LIMIT };
+    r.skip_ws();
+    if r.pos != data.len() {
+        return r.refuse("trailing_bytes");
+    }
+    Ok(v)
+}
+
+fn named_encode_source_catalog(v: &SourceCatalog, depth: i32) -> Result<Vec<u8>, Refusal> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut out = Vec::new();
+        enc_source_catalog(&mut out, v, depth);
+        out
+    })) {
+        Ok(out) => Ok(out),
+        Err(p) => match p.downcast::<Refusal>() {
+            Ok(e) => Err(*e),
+            Err(p) => std::panic::resume_unwind(p),
+        },
+    }
+}
+
+fn decode_source_catalog_at(data: &[u8], depth: i32, limit: i32) -> Result<(SourceCatalog, usize), Refusal> {
+    let mut r = Reader { buf: data, pos: 0, depth, limit: if limit < DEPTH_LIMIT { limit } else { DEPTH_LIMIT } };
+    if depth < 0 || limit < 1 {
+        return r.refuse("depth_exceeded");
+    }
+    r.skip_ws();
+    let v = decode_source_catalog(&mut r)?;
+    Ok((v, r.pos))
+}
+
+fn check_source_catalog(v: &SourceCatalog, depth: i32, limit: i32) -> Result<(), Refusal> {
+    if depth < 0 || limit < 1 {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_source_catalog(v, depth)?;
+    decode_source_catalog_at(&out, depth, limit).map(|_| ())
+}
+
+fn encode_source_catalog_at(v: &SourceCatalog, depth: i32) -> Result<Vec<u8>, Refusal> {
+    if !(0..DEPTH_LIMIT).contains(&depth) {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_source_catalog(v, depth)?;
+    decode_source_catalog_at(&out, depth, DEPTH_LIMIT)?;
+    Ok(out)
+}
+
+pub fn encode_source_catalog_document(v: &SourceCatalog) -> Result<Vec<u8>, Refusal> {
+    let mut out = encode_source_catalog_at(v, 0)?;
+    out.push(b'\n');
+    Ok(out)
+}
+
+pub fn decode_source_catalog_document(data: &[u8]) -> Result<SourceCatalog, Refusal> {
+    let (v, n) = decode_source_catalog_at(data, 0, DEPTH_LIMIT)?;
+    let mut r = Reader { buf: data, pos: n, depth: 0, limit: DEPTH_LIMIT };
+    r.skip_ws();
+    if r.pos != data.len() {
+        return r.refuse("trailing_bytes");
+    }
+    Ok(v)
+}
+
+fn named_encode_producer_claim(v: &ProducerClaim, depth: i32) -> Result<Vec<u8>, Refusal> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut out = Vec::new();
+        enc_producer_claim(&mut out, v, depth);
+        out
+    })) {
+        Ok(out) => Ok(out),
+        Err(p) => match p.downcast::<Refusal>() {
+            Ok(e) => Err(*e),
+            Err(p) => std::panic::resume_unwind(p),
+        },
+    }
+}
+
+fn decode_producer_claim_at(data: &[u8], depth: i32, limit: i32) -> Result<(ProducerClaim, usize), Refusal> {
+    let mut r = Reader { buf: data, pos: 0, depth, limit: if limit < DEPTH_LIMIT { limit } else { DEPTH_LIMIT } };
+    if depth < 0 || limit < 1 {
+        return r.refuse("depth_exceeded");
+    }
+    r.skip_ws();
+    let v = decode_producer_claim(&mut r)?;
+    Ok((v, r.pos))
+}
+
+fn check_producer_claim(v: &ProducerClaim, depth: i32, limit: i32) -> Result<(), Refusal> {
+    if depth < 0 || limit < 1 {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_producer_claim(v, depth)?;
+    decode_producer_claim_at(&out, depth, limit).map(|_| ())
+}
+
+fn encode_producer_claim_at(v: &ProducerClaim, depth: i32) -> Result<Vec<u8>, Refusal> {
+    if !(0..DEPTH_LIMIT).contains(&depth) {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_producer_claim(v, depth)?;
+    decode_producer_claim_at(&out, depth, DEPTH_LIMIT)?;
+    Ok(out)
+}
+
+pub fn encode_producer_claim_document(v: &ProducerClaim) -> Result<Vec<u8>, Refusal> {
+    let mut out = encode_producer_claim_at(v, 0)?;
+    out.push(b'\n');
+    Ok(out)
+}
+
+pub fn decode_producer_claim_document(data: &[u8]) -> Result<ProducerClaim, Refusal> {
+    let (v, n) = decode_producer_claim_at(data, 0, DEPTH_LIMIT)?;
+    let mut r = Reader { buf: data, pos: n, depth: 0, limit: DEPTH_LIMIT };
+    r.skip_ws();
+    if r.pos != data.len() {
+        return r.refuse("trailing_bytes");
+    }
+    Ok(v)
+}
+
+fn named_encode_source_record(v: &SourceRecord, depth: i32) -> Result<Vec<u8>, Refusal> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut out = Vec::new();
+        enc_source_record(&mut out, v, depth);
+        out
+    })) {
+        Ok(out) => Ok(out),
+        Err(p) => match p.downcast::<Refusal>() {
+            Ok(e) => Err(*e),
+            Err(p) => std::panic::resume_unwind(p),
+        },
+    }
+}
+
+fn decode_source_record_at(data: &[u8], depth: i32, limit: i32) -> Result<(SourceRecord, usize), Refusal> {
+    let mut r = Reader { buf: data, pos: 0, depth, limit: if limit < DEPTH_LIMIT { limit } else { DEPTH_LIMIT } };
+    if depth < 0 || limit < 1 {
+        return r.refuse("depth_exceeded");
+    }
+    r.skip_ws();
+    let v = decode_source_record(&mut r)?;
+    Ok((v, r.pos))
+}
+
+fn check_source_record(v: &SourceRecord, depth: i32, limit: i32) -> Result<(), Refusal> {
+    if depth < 0 || limit < 1 {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_source_record(v, depth)?;
+    decode_source_record_at(&out, depth, limit).map(|_| ())
+}
+
+fn encode_source_record_at(v: &SourceRecord, depth: i32) -> Result<Vec<u8>, Refusal> {
+    if !(0..DEPTH_LIMIT).contains(&depth) {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_source_record(v, depth)?;
+    decode_source_record_at(&out, depth, DEPTH_LIMIT)?;
+    Ok(out)
+}
+
+pub fn encode_source_record_document(v: &SourceRecord) -> Result<Vec<u8>, Refusal> {
+    let mut out = encode_source_record_at(v, 0)?;
+    out.push(b'\n');
+    Ok(out)
+}
+
+pub fn decode_source_record_document(data: &[u8]) -> Result<SourceRecord, Refusal> {
+    let (v, n) = decode_source_record_at(data, 0, DEPTH_LIMIT)?;
+    let mut r = Reader { buf: data, pos: n, depth: 0, limit: DEPTH_LIMIT };
+    r.skip_ws();
+    if r.pos != data.len() {
+        return r.refuse("trailing_bytes");
+    }
+    Ok(v)
+}
+
+fn named_encode_source_page(v: &SourcePage, depth: i32) -> Result<Vec<u8>, Refusal> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut out = Vec::new();
+        enc_source_page(&mut out, v, depth);
+        out
+    })) {
+        Ok(out) => Ok(out),
+        Err(p) => match p.downcast::<Refusal>() {
+            Ok(e) => Err(*e),
+            Err(p) => std::panic::resume_unwind(p),
+        },
+    }
+}
+
+fn decode_source_page_at(data: &[u8], depth: i32, limit: i32) -> Result<(SourcePage, usize), Refusal> {
+    let mut r = Reader { buf: data, pos: 0, depth, limit: if limit < DEPTH_LIMIT { limit } else { DEPTH_LIMIT } };
+    if depth < 0 || limit < 1 {
+        return r.refuse("depth_exceeded");
+    }
+    r.skip_ws();
+    let v = decode_source_page(&mut r)?;
+    Ok((v, r.pos))
+}
+
+fn check_source_page(v: &SourcePage, depth: i32, limit: i32) -> Result<(), Refusal> {
+    if depth < 0 || limit < 1 {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_source_page(v, depth)?;
+    decode_source_page_at(&out, depth, limit).map(|_| ())
+}
+
+fn encode_source_page_at(v: &SourcePage, depth: i32) -> Result<Vec<u8>, Refusal> {
+    if !(0..DEPTH_LIMIT).contains(&depth) {
+        return Err(Refusal { word: "depth_exceeded", offset: 0 });
+    }
+    let out = named_encode_source_page(v, depth)?;
+    decode_source_page_at(&out, depth, DEPTH_LIMIT)?;
+    Ok(out)
+}
+
+pub fn encode_source_page_document(v: &SourcePage) -> Result<Vec<u8>, Refusal> {
+    let mut out = encode_source_page_at(v, 0)?;
+    out.push(b'\n');
+    Ok(out)
+}
+
+pub fn decode_source_page_document(data: &[u8]) -> Result<SourcePage, Refusal> {
+    let (v, n) = decode_source_page_at(data, 0, DEPTH_LIMIT)?;
+    let mut r = Reader { buf: data, pos: n, depth: 0, limit: DEPTH_LIMIT };
+    r.skip_ws();
+    if r.pos != data.len() {
+        return r.refuse("trailing_bytes");
+    }
+    Ok(v)
+}
+
 /// Items generated crates that include this one, and conformance drivers,
 /// reach. Nothing here is API; it may change in any release.
 pub mod internal {
@@ -2149,5 +5093,137 @@ pub mod internal {
     /// [DEF-G2] rfc3339-wide: what a reader accepts.
     pub fn wide_timestamp(text: &str) -> bool {
         super::wide_timestamp(text)
+    }
+
+    pub fn decode_attestation_at(data: &[u8], depth: i32, limit: i32) -> Result<(super::Attestation, usize), super::Refusal> {
+        super::decode_attestation_at(data, depth, limit)
+    }
+
+    pub fn check_attestation(v: &super::Attestation, depth: i32, limit: i32) -> Result<(), super::Refusal> {
+        super::check_attestation(v, depth, limit)
+    }
+
+    pub fn encode_attestation_at(v: &super::Attestation, depth: i32) -> Result<Vec<u8>, super::Refusal> {
+        super::encode_attestation_at(v, depth)
+    }
+
+    pub fn decode_record_at(data: &[u8], depth: i32, limit: i32) -> Result<(super::Record, usize), super::Refusal> {
+        super::decode_record_at(data, depth, limit)
+    }
+
+    pub fn check_record(v: &super::Record, depth: i32, limit: i32) -> Result<(), super::Refusal> {
+        super::check_record(v, depth, limit)
+    }
+
+    pub fn encode_record_at(v: &super::Record, depth: i32) -> Result<Vec<u8>, super::Refusal> {
+        super::encode_record_at(v, depth)
+    }
+
+    pub fn decode_page_at(data: &[u8], depth: i32, limit: i32) -> Result<(super::Page, usize), super::Refusal> {
+        super::decode_page_at(data, depth, limit)
+    }
+
+    pub fn check_page(v: &super::Page, depth: i32, limit: i32) -> Result<(), super::Refusal> {
+        super::check_page(v, depth, limit)
+    }
+
+    pub fn encode_page_at(v: &super::Page, depth: i32) -> Result<Vec<u8>, super::Refusal> {
+        super::encode_page_at(v, depth)
+    }
+
+    pub fn decode_application_log_target_at(data: &[u8], depth: i32, limit: i32) -> Result<(super::ApplicationLogTarget, usize), super::Refusal> {
+        super::decode_application_log_target_at(data, depth, limit)
+    }
+
+    pub fn check_application_log_target(v: &super::ApplicationLogTarget, depth: i32, limit: i32) -> Result<(), super::Refusal> {
+        super::check_application_log_target(v, depth, limit)
+    }
+
+    pub fn encode_application_log_target_at(v: &super::ApplicationLogTarget, depth: i32) -> Result<Vec<u8>, super::Refusal> {
+        super::encode_application_log_target_at(v, depth)
+    }
+
+    pub fn decode_application_log_resource_at(data: &[u8], depth: i32, limit: i32) -> Result<(super::ApplicationLogResource, usize), super::Refusal> {
+        super::decode_application_log_resource_at(data, depth, limit)
+    }
+
+    pub fn check_application_log_resource(v: &super::ApplicationLogResource, depth: i32, limit: i32) -> Result<(), super::Refusal> {
+        super::check_application_log_resource(v, depth, limit)
+    }
+
+    pub fn encode_application_log_resource_at(v: &super::ApplicationLogResource, depth: i32) -> Result<Vec<u8>, super::Refusal> {
+        super::encode_application_log_resource_at(v, depth)
+    }
+
+    pub fn decode_application_log_page_at(data: &[u8], depth: i32, limit: i32) -> Result<(super::ApplicationLogPage, usize), super::Refusal> {
+        super::decode_application_log_page_at(data, depth, limit)
+    }
+
+    pub fn check_application_log_page(v: &super::ApplicationLogPage, depth: i32, limit: i32) -> Result<(), super::Refusal> {
+        super::check_application_log_page(v, depth, limit)
+    }
+
+    pub fn encode_application_log_page_at(v: &super::ApplicationLogPage, depth: i32) -> Result<Vec<u8>, super::Refusal> {
+        super::encode_application_log_page_at(v, depth)
+    }
+
+    pub fn decode_source_descriptor_at(data: &[u8], depth: i32, limit: i32) -> Result<(super::SourceDescriptor, usize), super::Refusal> {
+        super::decode_source_descriptor_at(data, depth, limit)
+    }
+
+    pub fn check_source_descriptor(v: &super::SourceDescriptor, depth: i32, limit: i32) -> Result<(), super::Refusal> {
+        super::check_source_descriptor(v, depth, limit)
+    }
+
+    pub fn encode_source_descriptor_at(v: &super::SourceDescriptor, depth: i32) -> Result<Vec<u8>, super::Refusal> {
+        super::encode_source_descriptor_at(v, depth)
+    }
+
+    pub fn decode_source_catalog_at(data: &[u8], depth: i32, limit: i32) -> Result<(super::SourceCatalog, usize), super::Refusal> {
+        super::decode_source_catalog_at(data, depth, limit)
+    }
+
+    pub fn check_source_catalog(v: &super::SourceCatalog, depth: i32, limit: i32) -> Result<(), super::Refusal> {
+        super::check_source_catalog(v, depth, limit)
+    }
+
+    pub fn encode_source_catalog_at(v: &super::SourceCatalog, depth: i32) -> Result<Vec<u8>, super::Refusal> {
+        super::encode_source_catalog_at(v, depth)
+    }
+
+    pub fn decode_producer_claim_at(data: &[u8], depth: i32, limit: i32) -> Result<(super::ProducerClaim, usize), super::Refusal> {
+        super::decode_producer_claim_at(data, depth, limit)
+    }
+
+    pub fn check_producer_claim(v: &super::ProducerClaim, depth: i32, limit: i32) -> Result<(), super::Refusal> {
+        super::check_producer_claim(v, depth, limit)
+    }
+
+    pub fn encode_producer_claim_at(v: &super::ProducerClaim, depth: i32) -> Result<Vec<u8>, super::Refusal> {
+        super::encode_producer_claim_at(v, depth)
+    }
+
+    pub fn decode_source_record_at(data: &[u8], depth: i32, limit: i32) -> Result<(super::SourceRecord, usize), super::Refusal> {
+        super::decode_source_record_at(data, depth, limit)
+    }
+
+    pub fn check_source_record(v: &super::SourceRecord, depth: i32, limit: i32) -> Result<(), super::Refusal> {
+        super::check_source_record(v, depth, limit)
+    }
+
+    pub fn encode_source_record_at(v: &super::SourceRecord, depth: i32) -> Result<Vec<u8>, super::Refusal> {
+        super::encode_source_record_at(v, depth)
+    }
+
+    pub fn decode_source_page_at(data: &[u8], depth: i32, limit: i32) -> Result<(super::SourcePage, usize), super::Refusal> {
+        super::decode_source_page_at(data, depth, limit)
+    }
+
+    pub fn check_source_page(v: &super::SourcePage, depth: i32, limit: i32) -> Result<(), super::Refusal> {
+        super::check_source_page(v, depth, limit)
+    }
+
+    pub fn encode_source_page_at(v: &super::SourcePage, depth: i32) -> Result<Vec<u8>, super::Refusal> {
+        super::encode_source_page_at(v, depth)
     }
 }

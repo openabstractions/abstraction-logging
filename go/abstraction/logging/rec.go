@@ -73,6 +73,23 @@ func strs(out []byte, v []string, depth int) []byte {
 	return append(out, ']')
 }
 
+func enumStrs[T any](out []byte, v []T, depth int, word func(T) string) []byte {
+	if len(v) == 0 {
+		return append(out, '[', ']')
+	}
+	out = append(out, '[', '\n')
+	for i, item := range v {
+		out = pad(out, depth+1)
+		out = esc(out, word(item))
+		if i+1 < len(v) {
+			out = append(out, ',')
+		}
+		out = append(out, '\n')
+	}
+	out = pad(out, depth)
+	return append(out, ']')
+}
+
 func raw(out []byte, s string, depth int) []byte {
 	ws := func(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
 	for i := 0; i < len(s); {
@@ -348,6 +365,499 @@ func (v PageOutcome) Known() bool {
 	return ok
 }
 
+// HistoryPageOutcome is a closed vocabulary. Its numeric values are private implementation
+// tags; String and ParseHistoryPageOutcome preserve the exact wire words.
+type HistoryPageOutcome uint32
+
+const (
+	HistoryPageOutcomePage                    HistoryPageOutcome = 1
+	HistoryPageOutcomeGap                     HistoryPageOutcome = 2
+	HistoryPageOutcomeUnavailable             HistoryPageOutcome = 3
+	HistoryPageOutcomeInvalid                 HistoryPageOutcome = 4
+	HistoryPageOutcomeRecordTooLarge          HistoryPageOutcome = 5
+	HistoryPageOutcomeCorrupt                 HistoryPageOutcome = 6
+	HistoryPageOutcomeUnsupported             HistoryPageOutcome = 7
+	HistoryPageOutcomeForbidden               HistoryPageOutcome = 8
+	HistoryPageOutcomeNotPermitted            HistoryPageOutcome = 9
+	HistoryPageOutcomeOSAuthorizationRequired HistoryPageOutcome = 10
+	HistoryPageOutcomeOSAuthorizationPending  HistoryPageOutcome = 11
+)
+
+// String returns v's exact wire word, or the empty string for an invalid value.
+func (v HistoryPageOutcome) String() string {
+	word, _ := v.WireName()
+	return word
+}
+
+// WireName returns v's exact wire word and whether v names a member.
+func (v HistoryPageOutcome) WireName() (string, bool) {
+	switch v {
+	case HistoryPageOutcomePage:
+		return "page", true
+	case HistoryPageOutcomeGap:
+		return "gap", true
+	case HistoryPageOutcomeUnavailable:
+		return "unavailable", true
+	case HistoryPageOutcomeInvalid:
+		return "invalid", true
+	case HistoryPageOutcomeRecordTooLarge:
+		return "record_too_large", true
+	case HistoryPageOutcomeCorrupt:
+		return "corrupt", true
+	case HistoryPageOutcomeUnsupported:
+		return "unsupported", true
+	case HistoryPageOutcomeForbidden:
+		return "forbidden", true
+	case HistoryPageOutcomeNotPermitted:
+		return "not_permitted", true
+	case HistoryPageOutcomeOSAuthorizationRequired:
+		return "os_authorization_required", true
+	case HistoryPageOutcomeOSAuthorizationPending:
+		return "os_authorization_pending", true
+	}
+	return "", false
+}
+
+// ParseHistoryPageOutcome returns the member named by an exact wire word.
+func ParseHistoryPageOutcome(word string) (HistoryPageOutcome, bool) {
+	switch word {
+	case "page":
+		return HistoryPageOutcomePage, true
+	case "gap":
+		return HistoryPageOutcomeGap, true
+	case "unavailable":
+		return HistoryPageOutcomeUnavailable, true
+	case "invalid":
+		return HistoryPageOutcomeInvalid, true
+	case "record_too_large":
+		return HistoryPageOutcomeRecordTooLarge, true
+	case "corrupt":
+		return HistoryPageOutcomeCorrupt, true
+	case "unsupported":
+		return HistoryPageOutcomeUnsupported, true
+	case "forbidden":
+		return HistoryPageOutcomeForbidden, true
+	case "not_permitted":
+		return HistoryPageOutcomeNotPermitted, true
+	case "os_authorization_required":
+		return HistoryPageOutcomeOSAuthorizationRequired, true
+	case "os_authorization_pending":
+		return HistoryPageOutcomeOSAuthorizationPending, true
+	}
+	return HistoryPageOutcome(0), false
+}
+
+// MarshalText preserves the member's exact wire word for standard text users,
+// including JSON object keys. Invalid and zero values are refused.
+func (v HistoryPageOutcome) MarshalText() ([]byte, error) {
+	word, ok := v.WireName()
+	if !ok {
+		return nil, &Refusal{Word: "bad_enum", Offset: 0}
+	}
+	return []byte(word), nil
+}
+
+// UnmarshalText accepts an exact wire word and refuses unknown text.
+func (v *HistoryPageOutcome) UnmarshalText(text []byte) error {
+	word, ok := ParseHistoryPageOutcome(string(text))
+	if !ok {
+		return &Refusal{Word: "bad_enum", Offset: 0}
+	}
+	*v = word
+	return nil
+}
+
+// MarshalJSON keeps closed vocabularies as JSON strings rather than their
+// private numeric implementation tags.
+func (v HistoryPageOutcome) MarshalJSON() ([]byte, error) {
+	word, ok := v.WireName()
+	if !ok {
+		return nil, &Refusal{Word: "bad_enum", Offset: 0}
+	}
+	return esc(nil, word), nil
+}
+
+// UnmarshalJSON accepts only an exact JSON string member. Numbers, null and
+// unknown strings are refused by the same codec rules as generated records.
+func (v *HistoryPageOutcome) UnmarshalJSON(data []byte) error {
+	r := reader{buf: data}
+	r.ws()
+	word, err := r.str()
+	if err != nil {
+		return err
+	}
+	r.ws()
+	if r.pos != len(r.buf) {
+		return r.refuse("trailing_bytes")
+	}
+	parsed, ok := ParseHistoryPageOutcome(word)
+	if !ok {
+		return r.refuse("bad_enum")
+	}
+	*v = parsed
+	return nil
+}
+
+// HistoryPageOutcomeValues returns every member of HistoryPageOutcome in declaration order, in a new slice.
+func HistoryPageOutcomeValues() []HistoryPageOutcome {
+	return []HistoryPageOutcome{HistoryPageOutcomePage, HistoryPageOutcomeGap, HistoryPageOutcomeUnavailable, HistoryPageOutcomeInvalid, HistoryPageOutcomeRecordTooLarge, HistoryPageOutcomeCorrupt, HistoryPageOutcomeUnsupported, HistoryPageOutcomeForbidden, HistoryPageOutcomeNotPermitted, HistoryPageOutcomeOSAuthorizationRequired, HistoryPageOutcomeOSAuthorizationPending}
+}
+
+// Known reports whether v is a member of HistoryPageOutcome.
+func (v HistoryPageOutcome) Known() bool {
+	_, ok := v.WireName()
+	return ok
+}
+
+// ApplicationLogSelection is a closed vocabulary. Its numeric values are private implementation
+// tags; String and ParseApplicationLogSelection preserve the exact wire words.
+type ApplicationLogSelection uint32
+
+const (
+	ApplicationLogSelectionOneApp  ApplicationLogSelection = 1
+	ApplicationLogSelectionAllApps ApplicationLogSelection = 2
+)
+
+// String returns v's exact wire word, or the empty string for an invalid value.
+func (v ApplicationLogSelection) String() string {
+	word, _ := v.WireName()
+	return word
+}
+
+// WireName returns v's exact wire word and whether v names a member.
+func (v ApplicationLogSelection) WireName() (string, bool) {
+	switch v {
+	case ApplicationLogSelectionOneApp:
+		return "one_app", true
+	case ApplicationLogSelectionAllApps:
+		return "all_apps", true
+	}
+	return "", false
+}
+
+// ParseApplicationLogSelection returns the member named by an exact wire word.
+func ParseApplicationLogSelection(word string) (ApplicationLogSelection, bool) {
+	switch word {
+	case "one_app":
+		return ApplicationLogSelectionOneApp, true
+	case "all_apps":
+		return ApplicationLogSelectionAllApps, true
+	}
+	return ApplicationLogSelection(0), false
+}
+
+// MarshalText preserves the member's exact wire word for standard text users,
+// including JSON object keys. Invalid and zero values are refused.
+func (v ApplicationLogSelection) MarshalText() ([]byte, error) {
+	word, ok := v.WireName()
+	if !ok {
+		return nil, &Refusal{Word: "bad_enum", Offset: 0}
+	}
+	return []byte(word), nil
+}
+
+// UnmarshalText accepts an exact wire word and refuses unknown text.
+func (v *ApplicationLogSelection) UnmarshalText(text []byte) error {
+	word, ok := ParseApplicationLogSelection(string(text))
+	if !ok {
+		return &Refusal{Word: "bad_enum", Offset: 0}
+	}
+	*v = word
+	return nil
+}
+
+// MarshalJSON keeps closed vocabularies as JSON strings rather than their
+// private numeric implementation tags.
+func (v ApplicationLogSelection) MarshalJSON() ([]byte, error) {
+	word, ok := v.WireName()
+	if !ok {
+		return nil, &Refusal{Word: "bad_enum", Offset: 0}
+	}
+	return esc(nil, word), nil
+}
+
+// UnmarshalJSON accepts only an exact JSON string member. Numbers, null and
+// unknown strings are refused by the same codec rules as generated records.
+func (v *ApplicationLogSelection) UnmarshalJSON(data []byte) error {
+	r := reader{buf: data}
+	r.ws()
+	word, err := r.str()
+	if err != nil {
+		return err
+	}
+	r.ws()
+	if r.pos != len(r.buf) {
+		return r.refuse("trailing_bytes")
+	}
+	parsed, ok := ParseApplicationLogSelection(word)
+	if !ok {
+		return r.refuse("bad_enum")
+	}
+	*v = parsed
+	return nil
+}
+
+// ApplicationLogSelectionValues returns every member of ApplicationLogSelection in declaration order, in a new slice.
+func ApplicationLogSelectionValues() []ApplicationLogSelection {
+	return []ApplicationLogSelection{ApplicationLogSelectionOneApp, ApplicationLogSelectionAllApps}
+}
+
+// Known reports whether v is a member of ApplicationLogSelection.
+func (v ApplicationLogSelection) Known() bool {
+	_, ok := v.WireName()
+	return ok
+}
+
+// SourceAvailability is a closed vocabulary. Its numeric values are private implementation
+// tags; String and ParseSourceAvailability preserve the exact wire words.
+type SourceAvailability uint32
+
+const (
+	SourceAvailabilityAvailable        SourceAvailability = 1
+	SourceAvailabilityPermissionDenied SourceAvailability = 2
+	SourceAvailabilityUnavailable      SourceAvailability = 3
+	SourceAvailabilityUnsupported      SourceAvailability = 4
+)
+
+// String returns v's exact wire word, or the empty string for an invalid value.
+func (v SourceAvailability) String() string {
+	word, _ := v.WireName()
+	return word
+}
+
+// WireName returns v's exact wire word and whether v names a member.
+func (v SourceAvailability) WireName() (string, bool) {
+	switch v {
+	case SourceAvailabilityAvailable:
+		return "available", true
+	case SourceAvailabilityPermissionDenied:
+		return "permission_denied", true
+	case SourceAvailabilityUnavailable:
+		return "unavailable", true
+	case SourceAvailabilityUnsupported:
+		return "unsupported", true
+	}
+	return "", false
+}
+
+// ParseSourceAvailability returns the member named by an exact wire word.
+func ParseSourceAvailability(word string) (SourceAvailability, bool) {
+	switch word {
+	case "available":
+		return SourceAvailabilityAvailable, true
+	case "permission_denied":
+		return SourceAvailabilityPermissionDenied, true
+	case "unavailable":
+		return SourceAvailabilityUnavailable, true
+	case "unsupported":
+		return SourceAvailabilityUnsupported, true
+	}
+	return SourceAvailability(0), false
+}
+
+// MarshalText preserves the member's exact wire word for standard text users,
+// including JSON object keys. Invalid and zero values are refused.
+func (v SourceAvailability) MarshalText() ([]byte, error) {
+	word, ok := v.WireName()
+	if !ok {
+		return nil, &Refusal{Word: "bad_enum", Offset: 0}
+	}
+	return []byte(word), nil
+}
+
+// UnmarshalText accepts an exact wire word and refuses unknown text.
+func (v *SourceAvailability) UnmarshalText(text []byte) error {
+	word, ok := ParseSourceAvailability(string(text))
+	if !ok {
+		return &Refusal{Word: "bad_enum", Offset: 0}
+	}
+	*v = word
+	return nil
+}
+
+// MarshalJSON keeps closed vocabularies as JSON strings rather than their
+// private numeric implementation tags.
+func (v SourceAvailability) MarshalJSON() ([]byte, error) {
+	word, ok := v.WireName()
+	if !ok {
+		return nil, &Refusal{Word: "bad_enum", Offset: 0}
+	}
+	return esc(nil, word), nil
+}
+
+// UnmarshalJSON accepts only an exact JSON string member. Numbers, null and
+// unknown strings are refused by the same codec rules as generated records.
+func (v *SourceAvailability) UnmarshalJSON(data []byte) error {
+	r := reader{buf: data}
+	r.ws()
+	word, err := r.str()
+	if err != nil {
+		return err
+	}
+	r.ws()
+	if r.pos != len(r.buf) {
+		return r.refuse("trailing_bytes")
+	}
+	parsed, ok := ParseSourceAvailability(word)
+	if !ok {
+		return r.refuse("bad_enum")
+	}
+	*v = parsed
+	return nil
+}
+
+// SourceAvailabilityValues returns every member of SourceAvailability in declaration order, in a new slice.
+func SourceAvailabilityValues() []SourceAvailability {
+	return []SourceAvailability{SourceAvailabilityAvailable, SourceAvailabilityPermissionDenied, SourceAvailabilityUnavailable, SourceAvailabilityUnsupported}
+}
+
+// Known reports whether v is a member of SourceAvailability.
+func (v SourceAvailability) Known() bool {
+	_, ok := v.WireName()
+	return ok
+}
+
+// SourceLimitation is an open vocabulary: a reader keeps a word it has never heard, so
+// a value may be none of the constants below. SourceLimitation(word) and string(v)
+// convert between the raw word and the vocabulary.
+type SourceLimitation string
+
+const (
+	SourceLimitationRetention         SourceLimitation = "retention"
+	SourceLimitationNativeRedaction   SourceLimitation = "native_redaction"
+	SourceLimitationCollectionPolicy  SourceLimitation = "collection_policy"
+	SourceLimitationNativeAccess      SourceLimitation = "native_access"
+	SourceLimitationVisibilityUnknown SourceLimitation = "visibility_unknown"
+)
+
+// SourceLimitationValues returns every member of SourceLimitation in declaration order, in a new slice.
+func SourceLimitationValues() []SourceLimitation {
+	return []SourceLimitation{SourceLimitationRetention, SourceLimitationNativeRedaction, SourceLimitationCollectionPolicy, SourceLimitationNativeAccess, SourceLimitationVisibilityUnknown}
+}
+
+// Known reports whether v is a member of SourceLimitation.
+func (v SourceLimitation) Known() bool {
+	switch v {
+	case SourceLimitationRetention, SourceLimitationNativeRedaction, SourceLimitationCollectionPolicy, SourceLimitationNativeAccess, SourceLimitationVisibilityUnknown:
+		return true
+	}
+	return false
+}
+
+// SourceCatalogOutcome is a closed vocabulary. Its numeric values are private implementation
+// tags; String and ParseSourceCatalogOutcome preserve the exact wire words.
+type SourceCatalogOutcome uint32
+
+const (
+	SourceCatalogOutcomeCatalog      SourceCatalogOutcome = 1
+	SourceCatalogOutcomeForbidden    SourceCatalogOutcome = 2
+	SourceCatalogOutcomeNotPermitted SourceCatalogOutcome = 3
+	SourceCatalogOutcomeUnavailable  SourceCatalogOutcome = 4
+	SourceCatalogOutcomeInvalid      SourceCatalogOutcome = 5
+)
+
+// String returns v's exact wire word, or the empty string for an invalid value.
+func (v SourceCatalogOutcome) String() string {
+	word, _ := v.WireName()
+	return word
+}
+
+// WireName returns v's exact wire word and whether v names a member.
+func (v SourceCatalogOutcome) WireName() (string, bool) {
+	switch v {
+	case SourceCatalogOutcomeCatalog:
+		return "catalog", true
+	case SourceCatalogOutcomeForbidden:
+		return "forbidden", true
+	case SourceCatalogOutcomeNotPermitted:
+		return "not_permitted", true
+	case SourceCatalogOutcomeUnavailable:
+		return "unavailable", true
+	case SourceCatalogOutcomeInvalid:
+		return "invalid", true
+	}
+	return "", false
+}
+
+// ParseSourceCatalogOutcome returns the member named by an exact wire word.
+func ParseSourceCatalogOutcome(word string) (SourceCatalogOutcome, bool) {
+	switch word {
+	case "catalog":
+		return SourceCatalogOutcomeCatalog, true
+	case "forbidden":
+		return SourceCatalogOutcomeForbidden, true
+	case "not_permitted":
+		return SourceCatalogOutcomeNotPermitted, true
+	case "unavailable":
+		return SourceCatalogOutcomeUnavailable, true
+	case "invalid":
+		return SourceCatalogOutcomeInvalid, true
+	}
+	return SourceCatalogOutcome(0), false
+}
+
+// MarshalText preserves the member's exact wire word for standard text users,
+// including JSON object keys. Invalid and zero values are refused.
+func (v SourceCatalogOutcome) MarshalText() ([]byte, error) {
+	word, ok := v.WireName()
+	if !ok {
+		return nil, &Refusal{Word: "bad_enum", Offset: 0}
+	}
+	return []byte(word), nil
+}
+
+// UnmarshalText accepts an exact wire word and refuses unknown text.
+func (v *SourceCatalogOutcome) UnmarshalText(text []byte) error {
+	word, ok := ParseSourceCatalogOutcome(string(text))
+	if !ok {
+		return &Refusal{Word: "bad_enum", Offset: 0}
+	}
+	*v = word
+	return nil
+}
+
+// MarshalJSON keeps closed vocabularies as JSON strings rather than their
+// private numeric implementation tags.
+func (v SourceCatalogOutcome) MarshalJSON() ([]byte, error) {
+	word, ok := v.WireName()
+	if !ok {
+		return nil, &Refusal{Word: "bad_enum", Offset: 0}
+	}
+	return esc(nil, word), nil
+}
+
+// UnmarshalJSON accepts only an exact JSON string member. Numbers, null and
+// unknown strings are refused by the same codec rules as generated records.
+func (v *SourceCatalogOutcome) UnmarshalJSON(data []byte) error {
+	r := reader{buf: data}
+	r.ws()
+	word, err := r.str()
+	if err != nil {
+		return err
+	}
+	r.ws()
+	if r.pos != len(r.buf) {
+		return r.refuse("trailing_bytes")
+	}
+	parsed, ok := ParseSourceCatalogOutcome(word)
+	if !ok {
+		return r.refuse("bad_enum")
+	}
+	*v = parsed
+	return nil
+}
+
+// SourceCatalogOutcomeValues returns every member of SourceCatalogOutcome in declaration order, in a new slice.
+func SourceCatalogOutcomeValues() []SourceCatalogOutcome {
+	return []SourceCatalogOutcome{SourceCatalogOutcomeCatalog, SourceCatalogOutcomeForbidden, SourceCatalogOutcomeNotPermitted, SourceCatalogOutcomeUnavailable, SourceCatalogOutcomeInvalid}
+}
+
+// Known reports whether v is a member of SourceCatalogOutcome.
+func (v SourceCatalogOutcome) Known() bool {
+	_, ok := v.WireName()
+	return ok
+}
+
 // ServiceErrorCode is an open vocabulary: a reader keeps a word it has never heard, so
 // a value may be none of the constants below. ServiceErrorCode(word) and string(v)
 // convert between the raw word and the vocabulary.
@@ -384,6 +894,8 @@ func (v ServiceErrorCode) Known() bool {
 var HistoryErrorCodes = []string{"caller_unavailable", "identity_required", "wrong_user", "policy_unavailable", "forbidden"}
 
 var HistoryCursorWords = []string{"end"}
+
+var HistoryIdentityErrorCodes = []string{"caller_unavailable", "identity_required", "wrong_user"}
 
 // One hop of the provenance chain. program is the name a party gives itself and
 // appears on the writer's self claim. exe is the executable path the attesting
@@ -427,6 +939,82 @@ type Page struct {
 	AtEnd   bool
 }
 
+// One requires an Identity program; all omits program. Account is established
+// by the receiving service. All includes current and future attributed OA
+// emitters in that account, subject to blocks. Native sources and unattributed
+// legacy rows are excluded.
+type ApplicationLogTarget struct {
+	Selection ApplicationLogSelection
+	Program   string
+}
+
+// The application-log@1 owning target document. Trusted preparation normalizes
+// the program and captures its key; callers cannot supply a key to a logging
+// read. Historical enforcers use their captured evidence without reopening a
+// stored image.
+type ApplicationLogResource struct {
+	Program         string
+	CapturedFileKey string
+}
+
+// Bounded attributed history. Empty advancing non-end pages report finite scan
+// progress. Refusals preserve the supplied cursor and contain no records.
+// Cursors bind caller, selection, captured target, history instance and
+// position; gap requires explicit restart.
+type ApplicationLogPage struct {
+	Outcome HistoryPageOutcome
+	Records []Record
+	Next    string
+	AtEnd   bool
+}
+
+// A fixed source identifier and current access status. available means the
+// native API can be queried under the granted scope; it does not promise
+// complete capture. limitations states known platform constraints. An empty
+// page establishes no match in the source's visible retained data only.
+type SourceDescriptor struct {
+	ID           string
+	Availability SourceAvailability
+	Limitations  []SourceLimitation
+}
+
+type SourceCatalog struct {
+	Sources []SourceDescriptor
+	Outcome SourceCatalogOutcome
+}
+
+// Untrusted claims copied from a native source row. These values are never
+// verified OA identity.
+type ProducerClaim struct {
+	Provider string
+	Program  string
+	Exe      string
+	User     string
+	PID      int64
+	UID      int64
+	GID      int64
+}
+
+// One normalized native source entry. record.identity must be empty; native
+// producer claims remain in producer, separate from authenticated OA callers.
+type SourceRecord struct {
+	SourceID string
+	Record   Record
+	Producer *ProducerClaim
+}
+
+// A bounded page from exactly one source. Limits count encoded SourceRecord
+// bytes and entries. Cursors bind source ID and reader instance. at_end means
+// the observed end during this call; later native entries may appear. A gap
+// requires an explicit restart with empty cursor; refusal never advances a
+// supplied cursor.
+type SourcePage struct {
+	Outcome HistoryPageOutcome
+	Records []SourceRecord
+	Next    string
+	AtEnd   bool
+}
+
 type oaSinkWriteArguments struct {
 	Record Record
 }
@@ -442,6 +1030,35 @@ type oaHistoryObserverObserveArguments struct {
 	MaxRecords int64
 	MaxBytes   int64
 	WaitMs     int64
+}
+
+type oaApplicationHistoryReaderReadArguments struct {
+	Target     ApplicationLogTarget
+	Cursor     string
+	MaxRecords int64
+	MaxBytes   int64
+}
+
+type oaApplicationHistoryObserverObserveArguments struct {
+	Target     ApplicationLogTarget
+	Cursor     string
+	MaxRecords int64
+	MaxBytes   int64
+	WaitMs     int64
+}
+
+type oaSourceReaderSourcesArguments struct {
+}
+
+type oaSourceReaderReadArguments struct {
+	SourceID   string
+	Cursor     string
+	MaxRecords int64
+	MaxBytes   int64
+}
+
+type oaSourceReaderStartAtEndArguments struct {
+	SourceID string
 }
 
 type oaServiceFrame struct {
@@ -470,6 +1087,26 @@ type oaHistoryReaderReadResult struct {
 
 type oaHistoryObserverObserveResult struct {
 	Value Page
+}
+
+type oaApplicationHistoryReaderReadResult struct {
+	Value ApplicationLogPage
+}
+
+type oaApplicationHistoryObserverObserveResult struct {
+	Value ApplicationLogPage
+}
+
+type oaSourceReaderSourcesResult struct {
+	Value SourceCatalog
+}
+
+type oaSourceReaderReadResult struct {
+	Value SourcePage
+}
+
+type oaSourceReaderStartAtEndResult struct {
+	Value SourcePage
 }
 
 func encAttestation(out []byte, v *Attestation, depth int) []byte {
@@ -660,6 +1297,281 @@ func encPage(out []byte, v *Page, depth int) []byte {
 	return append(out, '}')
 }
 
+func encApplicationLogTarget(out []byte, v *ApplicationLogTarget, depth int) []byte {
+	if !(v.Selection).Known() {
+		panic(&Refusal{Word: "bad_enum", Offset: 0})
+	}
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "selection")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Selection.String())
+	if v.Program != "" {
+		out = append(out, ',')
+		out = append(out, '\n')
+		out = pad(out, depth+1)
+		out = esc(out, "program")
+		out = append(out, ':', ' ')
+		out = esc(out, v.Program)
+	}
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encApplicationLogResource(out []byte, v *ApplicationLogResource, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "program")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Program)
+	if v.CapturedFileKey != "" {
+		out = append(out, ',')
+		out = append(out, '\n')
+		out = pad(out, depth+1)
+		out = esc(out, "captured_file_key")
+		out = append(out, ':', ' ')
+		out = esc(out, v.CapturedFileKey)
+	}
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encApplicationLogPage(out []byte, v *ApplicationLogPage, depth int) []byte {
+	if !(v.Outcome).Known() {
+		panic(&Refusal{Word: "bad_enum", Offset: 0})
+	}
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "outcome")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Outcome.String())
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "records")
+	out = append(out, ':', ' ')
+	out = encList(out, v.Records, depth+1, encRecord)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "next")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Next)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "at_end")
+	out = append(out, ':', ' ')
+	if v.AtEnd {
+		out = append(out, 't', 'r', 'u', 'e')
+	} else {
+		out = append(out, 'f', 'a', 'l', 's', 'e')
+	}
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encSourceDescriptor(out []byte, v *SourceDescriptor, depth int) []byte {
+	if !(v.Availability).Known() {
+		panic(&Refusal{Word: "bad_enum", Offset: 0})
+	}
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "id")
+	out = append(out, ':', ' ')
+	out = esc(out, v.ID)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "availability")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Availability.String())
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "limitations")
+	out = append(out, ':', ' ')
+	out = enumStrs(out, v.Limitations, depth+1, func(v SourceLimitation) string { return string(v) })
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encSourceCatalog(out []byte, v *SourceCatalog, depth int) []byte {
+	if !(v.Outcome).Known() {
+		panic(&Refusal{Word: "bad_enum", Offset: 0})
+	}
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "sources")
+	out = append(out, ':', ' ')
+	out = encList(out, v.Sources, depth+1, encSourceDescriptor)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "outcome")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Outcome.String())
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encProducerClaim(out []byte, v *ProducerClaim, depth int) []byte {
+	out = append(out, '{')
+	first := true
+	if v.Provider != "" {
+		first = false
+		out = append(out, '\n')
+		out = pad(out, depth+1)
+		out = esc(out, "provider")
+		out = append(out, ':', ' ')
+		out = esc(out, v.Provider)
+	}
+	if v.Program != "" {
+		if !first {
+			out = append(out, ',')
+		}
+		first = false
+		out = append(out, '\n')
+		out = pad(out, depth+1)
+		out = esc(out, "program")
+		out = append(out, ':', ' ')
+		out = esc(out, v.Program)
+	}
+	if v.Exe != "" {
+		if !first {
+			out = append(out, ',')
+		}
+		first = false
+		out = append(out, '\n')
+		out = pad(out, depth+1)
+		out = esc(out, "exe")
+		out = append(out, ':', ' ')
+		out = esc(out, v.Exe)
+	}
+	if v.User != "" {
+		if !first {
+			out = append(out, ',')
+		}
+		first = false
+		out = append(out, '\n')
+		out = pad(out, depth+1)
+		out = esc(out, "user")
+		out = append(out, ':', ' ')
+		out = esc(out, v.User)
+	}
+	if v.PID != 0 {
+		if !first {
+			out = append(out, ',')
+		}
+		first = false
+		out = append(out, '\n')
+		out = pad(out, depth+1)
+		out = esc(out, "pid")
+		out = append(out, ':', ' ')
+		out = num(out, v.PID)
+	}
+	if v.UID != 0 {
+		if !first {
+			out = append(out, ',')
+		}
+		first = false
+		out = append(out, '\n')
+		out = pad(out, depth+1)
+		out = esc(out, "uid")
+		out = append(out, ':', ' ')
+		out = num(out, v.UID)
+	}
+	if v.GID != 0 {
+		if !first {
+			out = append(out, ',')
+		}
+		first = false
+		out = append(out, '\n')
+		out = pad(out, depth+1)
+		out = esc(out, "gid")
+		out = append(out, ':', ' ')
+		out = num(out, v.GID)
+	}
+	if !first {
+		out = append(out, '\n')
+		out = pad(out, depth)
+	}
+	return append(out, '}')
+}
+
+func encSourceRecord(out []byte, v *SourceRecord, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "source_id")
+	out = append(out, ':', ' ')
+	out = esc(out, v.SourceID)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "record")
+	out = append(out, ':', ' ')
+	out = encRecord(out, &v.Record, depth+1)
+	if v.Producer != nil {
+		out = append(out, ',')
+		out = append(out, '\n')
+		out = pad(out, depth+1)
+		out = esc(out, "producer")
+		out = append(out, ':', ' ')
+		out = encProducerClaim(out, v.Producer, depth+1)
+	}
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encSourcePage(out []byte, v *SourcePage, depth int) []byte {
+	if !(v.Outcome).Known() {
+		panic(&Refusal{Word: "bad_enum", Offset: 0})
+	}
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "outcome")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Outcome.String())
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "records")
+	out = append(out, ':', ' ')
+	out = encList(out, v.Records, depth+1, encSourceRecord)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "next")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Next)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "at_end")
+	out = append(out, ':', ' ')
+	if v.AtEnd {
+		out = append(out, 't', 'r', 'u', 'e')
+	} else {
+		out = append(out, 'f', 'a', 'l', 's', 'e')
+	}
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
 func encOASinkWriteArguments(out []byte, v *oaSinkWriteArguments, depth int) []byte {
 	out = append(out, '{')
 	out = append(out, '\n')
@@ -721,6 +1633,119 @@ func encOAHistoryObserverObserveArguments(out []byte, v *oaHistoryObserverObserv
 	out = esc(out, "wait_ms")
 	out = append(out, ':', ' ')
 	out = num(out, v.WaitMs)
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encOAApplicationHistoryReaderReadArguments(out []byte, v *oaApplicationHistoryReaderReadArguments, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "target")
+	out = append(out, ':', ' ')
+	out = encApplicationLogTarget(out, &v.Target, depth+1)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "cursor")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Cursor)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "max_records")
+	out = append(out, ':', ' ')
+	out = num(out, v.MaxRecords)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "max_bytes")
+	out = append(out, ':', ' ')
+	out = num(out, v.MaxBytes)
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encOAApplicationHistoryObserverObserveArguments(out []byte, v *oaApplicationHistoryObserverObserveArguments, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "target")
+	out = append(out, ':', ' ')
+	out = encApplicationLogTarget(out, &v.Target, depth+1)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "cursor")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Cursor)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "max_records")
+	out = append(out, ':', ' ')
+	out = num(out, v.MaxRecords)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "max_bytes")
+	out = append(out, ':', ' ')
+	out = num(out, v.MaxBytes)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "wait_ms")
+	out = append(out, ':', ' ')
+	out = num(out, v.WaitMs)
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encOASourceReaderSourcesArguments(out []byte, v *oaSourceReaderSourcesArguments, depth int) []byte {
+	out = append(out, '{')
+	return append(out, '}')
+}
+
+func encOASourceReaderReadArguments(out []byte, v *oaSourceReaderReadArguments, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "source_id")
+	out = append(out, ':', ' ')
+	out = esc(out, v.SourceID)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "cursor")
+	out = append(out, ':', ' ')
+	out = esc(out, v.Cursor)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "max_records")
+	out = append(out, ':', ' ')
+	out = num(out, v.MaxRecords)
+	out = append(out, ',')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "max_bytes")
+	out = append(out, ':', ' ')
+	out = num(out, v.MaxBytes)
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encOASourceReaderStartAtEndArguments(out []byte, v *oaSourceReaderStartAtEndArguments, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "source_id")
+	out = append(out, ':', ' ')
+	out = esc(out, v.SourceID)
 	out = append(out, '\n')
 	out = pad(out, depth)
 	return append(out, '}')
@@ -838,6 +1863,66 @@ func encOAHistoryObserverObserveResult(out []byte, v *oaHistoryObserverObserveRe
 	return append(out, '}')
 }
 
+func encOAApplicationHistoryReaderReadResult(out []byte, v *oaApplicationHistoryReaderReadResult, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "value")
+	out = append(out, ':', ' ')
+	out = encApplicationLogPage(out, &v.Value, depth+1)
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encOAApplicationHistoryObserverObserveResult(out []byte, v *oaApplicationHistoryObserverObserveResult, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "value")
+	out = append(out, ':', ' ')
+	out = encApplicationLogPage(out, &v.Value, depth+1)
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encOASourceReaderSourcesResult(out []byte, v *oaSourceReaderSourcesResult, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "value")
+	out = append(out, ':', ' ')
+	out = encSourceCatalog(out, &v.Value, depth+1)
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encOASourceReaderReadResult(out []byte, v *oaSourceReaderReadResult, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "value")
+	out = append(out, ':', ' ')
+	out = encSourcePage(out, &v.Value, depth+1)
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
+func encOASourceReaderStartAtEndResult(out []byte, v *oaSourceReaderStartAtEndResult, depth int) []byte {
+	out = append(out, '{')
+	out = append(out, '\n')
+	out = pad(out, depth+1)
+	out = esc(out, "value")
+	out = append(out, ':', ' ')
+	out = encSourcePage(out, &v.Value, depth+1)
+	out = append(out, '\n')
+	out = pad(out, depth)
+	return append(out, '}')
+}
+
 func Encode(v *Record) []byte {
 	return append(encRecord(nil, v, 0), '\n')
 }
@@ -859,6 +1944,7 @@ type reader struct {
 	buf   []byte
 	pos   int
 	depth int
+ limit int
 }
 
 func (r *reader) refuse(word string) error { return &Refusal{Word: word, Offset: r.pos} }
@@ -883,7 +1969,7 @@ func (r *reader) ws() {
 
 func (r *reader) enter() error {
 	r.depth++
-	if r.depth > depthLimit {
+	if r.depth > r.depthLimit() {
 		return r.refuse("depth_exceeded")
 	}
 	return nil
@@ -1952,6 +3038,704 @@ func (r *reader) decodePage() (*Page, error) {
 	return v, nil
 }
 
+func (r *reader) decodeApplicationLogTarget() (*ApplicationLogTarget, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &ApplicationLogTarget{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "selection":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				word, ok := ParseApplicationLogSelection(x)
+				if !ok {
+					return nil, r.refuse("bad_enum")
+				}
+				v.Selection = word
+			case "program":
+				if seen&2 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 2
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Program = x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&1 != 1 {
+		return nil, r.refuse("missing_field")
+	}
+	if !(v.Selection).Known() {
+		return nil, r.refuse("bad_enum")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeApplicationLogResource() (*ApplicationLogResource, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &ApplicationLogResource{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "program":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Program = x
+			case "captured_file_key":
+				if seen&2 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 2
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.CapturedFileKey = x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&1 != 1 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeApplicationLogPage() (*ApplicationLogPage, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &ApplicationLogPage{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "outcome":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				word, ok := ParseHistoryPageOutcome(x)
+				if !ok {
+					return nil, r.refuse("bad_enum")
+				}
+				v.Outcome = word
+			case "records":
+				if seen&2 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 2
+				x, err := decodeList(r, (*reader).decodeRecord)
+				if err != nil {
+					return nil, err
+				}
+				v.Records = x
+			case "next":
+				if seen&4 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 4
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Next = x
+			case "at_end":
+				if seen&8 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 8
+				x, err := r.boolean()
+				if err != nil {
+					return nil, err
+				}
+				v.AtEnd = x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&15 != 15 {
+		return nil, r.refuse("missing_field")
+	}
+	if !(v.Outcome).Known() {
+		return nil, r.refuse("bad_enum")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeSourceDescriptor() (*SourceDescriptor, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &SourceDescriptor{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "id":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.ID = x
+			case "availability":
+				if seen&2 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 2
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				word, ok := ParseSourceAvailability(x)
+				if !ok {
+					return nil, r.refuse("bad_enum")
+				}
+				v.Availability = word
+			case "limitations":
+				if seen&4 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 4
+				x, err := r.strList()
+				if err != nil {
+					return nil, err
+				}
+				words := make([]SourceLimitation, len(x))
+				for i, raw := range x {
+					words[i] = SourceLimitation(raw)
+				}
+				v.Limitations = words
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&7 != 7 {
+		return nil, r.refuse("missing_field")
+	}
+	if !(v.Availability).Known() {
+		return nil, r.refuse("bad_enum")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeSourceCatalog() (*SourceCatalog, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &SourceCatalog{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "sources":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := decodeList(r, (*reader).decodeSourceDescriptor)
+				if err != nil {
+					return nil, err
+				}
+				v.Sources = x
+			case "outcome":
+				if seen&2 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 2
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				word, ok := ParseSourceCatalogOutcome(x)
+				if !ok {
+					return nil, r.refuse("bad_enum")
+				}
+				v.Outcome = word
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&3 != 3 {
+		return nil, r.refuse("missing_field")
+	}
+	if !(v.Outcome).Known() {
+		return nil, r.refuse("bad_enum")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeProducerClaim() (*ProducerClaim, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &ProducerClaim{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "provider":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Provider = x
+			case "program":
+				if seen&2 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 2
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Program = x
+			case "exe":
+				if seen&4 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 4
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Exe = x
+			case "user":
+				if seen&8 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 8
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.User = x
+			case "pid":
+				if seen&16 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 16
+				x, err := r.integer(-9223372036854775808, 9223372036854775807)
+				if err != nil {
+					return nil, err
+				}
+				v.PID = x
+			case "uid":
+				if seen&32 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 32
+				x, err := r.integer(-9223372036854775808, 9223372036854775807)
+				if err != nil {
+					return nil, err
+				}
+				v.UID = x
+			case "gid":
+				if seen&64 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 64
+				x, err := r.integer(-9223372036854775808, 9223372036854775807)
+				if err != nil {
+					return nil, err
+				}
+				v.GID = x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	return v, nil
+}
+
+func (r *reader) decodeSourceRecord() (*SourceRecord, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &SourceRecord{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "source_id":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.SourceID = x
+			case "record":
+				if seen&2 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 2
+				x, err := r.decodeRecord()
+				if err != nil {
+					return nil, err
+				}
+				v.Record = *x
+			case "producer":
+				if seen&4 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 4
+				x, err := r.decodeProducerClaim()
+				if err != nil {
+					return nil, err
+				}
+				v.Producer = x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&3 != 3 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeSourcePage() (*SourcePage, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &SourcePage{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "outcome":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				word, ok := ParseHistoryPageOutcome(x)
+				if !ok {
+					return nil, r.refuse("bad_enum")
+				}
+				v.Outcome = word
+			case "records":
+				if seen&2 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 2
+				x, err := decodeList(r, (*reader).decodeSourceRecord)
+				if err != nil {
+					return nil, err
+				}
+				v.Records = x
+			case "next":
+				if seen&4 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 4
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Next = x
+			case "at_end":
+				if seen&8 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 8
+				x, err := r.boolean()
+				if err != nil {
+					return nil, err
+				}
+				v.AtEnd = x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&15 != 15 {
+		return nil, r.refuse("missing_field")
+	}
+	if !(v.Outcome).Known() {
+		return nil, r.refuse("bad_enum")
+	}
+	return v, nil
+}
+
 func (r *reader) decodeOASinkWriteArguments() (*oaSinkWriteArguments, error) {
 	if r.at() != '{' {
 		return nil, r.refuse("wrong_type")
@@ -2174,6 +3958,378 @@ func (r *reader) decodeOAHistoryObserverObserveArguments() (*oaHistoryObserverOb
 	r.pos++
 	r.depth--
 	if seen&15 != 15 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeOAApplicationHistoryReaderReadArguments() (*oaApplicationHistoryReaderReadArguments, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &oaApplicationHistoryReaderReadArguments{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "target":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.decodeApplicationLogTarget()
+				if err != nil {
+					return nil, err
+				}
+				v.Target = *x
+			case "cursor":
+				if seen&2 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 2
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Cursor = x
+			case "max_records":
+				if seen&4 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 4
+				x, err := r.integer(-9223372036854775808, 9223372036854775807)
+				if err != nil {
+					return nil, err
+				}
+				v.MaxRecords = x
+			case "max_bytes":
+				if seen&8 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 8
+				x, err := r.integer(-9223372036854775808, 9223372036854775807)
+				if err != nil {
+					return nil, err
+				}
+				v.MaxBytes = x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&15 != 15 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeOAApplicationHistoryObserverObserveArguments() (*oaApplicationHistoryObserverObserveArguments, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &oaApplicationHistoryObserverObserveArguments{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "target":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.decodeApplicationLogTarget()
+				if err != nil {
+					return nil, err
+				}
+				v.Target = *x
+			case "cursor":
+				if seen&2 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 2
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Cursor = x
+			case "max_records":
+				if seen&4 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 4
+				x, err := r.integer(-9223372036854775808, 9223372036854775807)
+				if err != nil {
+					return nil, err
+				}
+				v.MaxRecords = x
+			case "max_bytes":
+				if seen&8 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 8
+				x, err := r.integer(-9223372036854775808, 9223372036854775807)
+				if err != nil {
+					return nil, err
+				}
+				v.MaxBytes = x
+			case "wait_ms":
+				if seen&16 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 16
+				x, err := r.integer(-9223372036854775808, 9223372036854775807)
+				if err != nil {
+					return nil, err
+				}
+				v.WaitMs = x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&31 != 31 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeOASourceReaderSourcesArguments() (*oaSourceReaderSourcesArguments, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &oaSourceReaderSourcesArguments{}
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			_ = key
+			return nil, r.refuse("unknown_field")
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	return v, nil
+}
+
+func (r *reader) decodeOASourceReaderReadArguments() (*oaSourceReaderReadArguments, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &oaSourceReaderReadArguments{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "source_id":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.SourceID = x
+			case "cursor":
+				if seen&2 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 2
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.Cursor = x
+			case "max_records":
+				if seen&4 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 4
+				x, err := r.integer(-9223372036854775808, 9223372036854775807)
+				if err != nil {
+					return nil, err
+				}
+				v.MaxRecords = x
+			case "max_bytes":
+				if seen&8 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 8
+				x, err := r.integer(-9223372036854775808, 9223372036854775807)
+				if err != nil {
+					return nil, err
+				}
+				v.MaxBytes = x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&15 != 15 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeOASourceReaderStartAtEndArguments() (*oaSourceReaderStartAtEndArguments, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &oaSourceReaderStartAtEndArguments{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "source_id":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.str()
+				if err != nil {
+					return nil, err
+				}
+				v.SourceID = x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&1 != 1 {
 		return nil, r.refuse("missing_field")
 	}
 	return v, nil
@@ -2529,6 +4685,301 @@ func (r *reader) decodeOAHistoryObserverObserveResult() (*oaHistoryObserverObser
 				}
 				seen |= 1
 				x, err := r.decodePage()
+				if err != nil {
+					return nil, err
+				}
+				v.Value = *x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&1 != 1 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeOAApplicationHistoryReaderReadResult() (*oaApplicationHistoryReaderReadResult, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &oaApplicationHistoryReaderReadResult{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "value":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.decodeApplicationLogPage()
+				if err != nil {
+					return nil, err
+				}
+				v.Value = *x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&1 != 1 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeOAApplicationHistoryObserverObserveResult() (*oaApplicationHistoryObserverObserveResult, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &oaApplicationHistoryObserverObserveResult{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "value":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.decodeApplicationLogPage()
+				if err != nil {
+					return nil, err
+				}
+				v.Value = *x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&1 != 1 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeOASourceReaderSourcesResult() (*oaSourceReaderSourcesResult, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &oaSourceReaderSourcesResult{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "value":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.decodeSourceCatalog()
+				if err != nil {
+					return nil, err
+				}
+				v.Value = *x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&1 != 1 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeOASourceReaderReadResult() (*oaSourceReaderReadResult, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &oaSourceReaderReadResult{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "value":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.decodeSourcePage()
+				if err != nil {
+					return nil, err
+				}
+				v.Value = *x
+			default:
+				return nil, r.refuse("unknown_field")
+			}
+			r.ws()
+			if r.at() != ',' {
+				break
+			}
+			r.pos++
+		}
+	}
+	if r.at() != '}' {
+		return nil, r.refuse("malformed")
+	}
+	r.pos++
+	r.depth--
+	if seen&1 != 1 {
+		return nil, r.refuse("missing_field")
+	}
+	return v, nil
+}
+
+func (r *reader) decodeOASourceReaderStartAtEndResult() (*oaSourceReaderStartAtEndResult, error) {
+	if r.at() != '{' {
+		return nil, r.refuse("wrong_type")
+	}
+	if err := r.enter(); err != nil {
+		return nil, err
+	}
+	r.pos++
+	v := &oaSourceReaderStartAtEndResult{}
+	var seen uint32
+	r.ws()
+	if r.at() != '}' {
+		for {
+			r.ws()
+			if r.at() != '"' {
+				return nil, r.refuse("malformed")
+			}
+			key, err := r.str()
+			if err != nil {
+				return nil, err
+			}
+			r.ws()
+			if r.at() != ':' {
+				return nil, r.refuse("malformed")
+			}
+			r.pos++
+			r.ws()
+			switch key {
+			case "value":
+				if seen&1 != 0 {
+					return nil, r.refuse("duplicate_field")
+				}
+				seen |= 1
+				x, err := r.decodeSourcePage()
 				if err != nil {
 					return nil, err
 				}
@@ -3230,3 +5681,727 @@ func (d *HistoryObserverDispatcher) invokeObserve(args *oaHistoryObserverObserve
 	}
 	return
 }
+
+type ApplicationHistoryReader interface {
+	Read(target ApplicationLogTarget, cursor string, maxRecords, maxBytes int64) (ApplicationLogPage, error)
+}
+type ApplicationHistoryReaderTransport interface {
+	FrameExchanger
+}
+type ApplicationHistoryReaderClient struct {
+	transport ApplicationHistoryReaderTransport
+}
+
+func NewApplicationHistoryReaderClient(t ApplicationHistoryReaderTransport) *ApplicationHistoryReaderClient {
+	return &ApplicationHistoryReaderClient{transport: t}
+}
+
+type ApplicationHistoryReaderDispatcher struct{ Handler ApplicationHistoryReader }
+
+func (c *ApplicationHistoryReaderClient) Read(target ApplicationLogTarget, cursor string, maxRecords, maxBytes int64) (result ApplicationLogPage, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			if e, ok := p.(*Refusal); ok {
+				err = e
+			} else {
+				panic(p)
+			}
+		}
+	}()
+	args := oaApplicationHistoryReaderReadArguments{Target: target, Cursor: cursor, MaxRecords: maxRecords, MaxBytes: maxBytes}
+	v := oaServiceFrame{Version: 1, Service: "abstraction.logging/reader@2", Method: "Read", Arguments: Raw(encOAApplicationHistoryReaderReadArguments(nil, &args, 1))}
+	frame := encOAServiceFrame(nil, &v, 0)
+	if _, err = servicePayload(frame); err != nil {
+		return
+	}
+	var response []byte
+	response, err = c.transport.ExchangeFrame(frame)
+	if err != nil {
+		return
+	}
+	var payload Raw
+	payload, err = serviceResponse(response, v.Service, v.Method)
+	if err != nil {
+		return
+	}
+	r := &reader{buf: []byte(payload), depth: 1}
+	r.ws()
+	var decoded *oaApplicationHistoryReaderReadResult
+	decoded, err = r.decodeOAApplicationHistoryReaderReadResult()
+	if err != nil {
+		return
+	}
+	_ = decoded
+	r.ws()
+	if r.pos != len(r.buf) {
+		err = r.refuse("trailing_bytes")
+		return
+	}
+	result = decoded.Value
+	return
+}
+
+// DescribeService is this dispatcher's service as abstraction.facade/endpoint@1 Describe lists it:
+// ready unless its handler implements Ready() (bool, string) and reports otherwise.
+func (d *ApplicationHistoryReaderDispatcher) DescribeService() (contract string, ready bool, why string) {
+	if h, ok := d.Handler.(interface{ Ready() (bool, string) }); ok {
+		if ready, why = h.Ready(); ready {
+			why = ""
+		}
+		return "abstraction.logging/reader@2", ready, why
+	}
+	return "abstraction.logging/reader@2", true, ""
+}
+
+// DescribeServiceMetadata returns optional handler display facts for Describe.
+// They grant no authority and do not change service admission.
+func (d *ApplicationHistoryReaderDispatcher) DescribeServiceMetadata() (guarantees []string, capabilities map[string]string) {
+	if h, ok := d.Handler.(interface {
+		DescribeMetadata() ([]string, map[string]string)
+	}); ok {
+		return h.DescribeMetadata()
+	}
+	return nil, nil
+}
+
+// ServiceContract is the wire name ServeEndpoint routes this dispatcher's frames by.
+func (d *ApplicationHistoryReaderDispatcher) ServiceContract() string {
+	return "abstraction.logging/reader@2"
+}
+func (d *ApplicationHistoryReaderDispatcher) WriteFrame(frame []byte) error {
+	v, err := servicePayload(frame)
+	if err != nil {
+		return err
+	}
+	if v.Service != "abstraction.logging/reader@2" {
+		return DispatchError("unknown_service")
+	}
+	switch v.Method {
+	case "Read":
+		return DispatchError("wrong_mode")
+	default:
+		return DispatchError("unknown_method")
+	}
+}
+func (d *ApplicationHistoryReaderDispatcher) ExchangeFrame(frame []byte) ([]byte, error) {
+	v, err := servicePayload(frame)
+	if err != nil {
+		return nil, err
+	}
+	if v.Service == EndpointContract {
+		return DescribeEndpoint(frame, "", "", d)
+	}
+	if v.Service != "abstraction.logging/reader@2" {
+		return serviceReply(v, "", DispatchError("unknown_service"))
+	}
+	switch v.Method {
+	case "Read":
+		r := &reader{buf: []byte(v.Arguments), depth: 1}
+		r.ws()
+		args, err := r.decodeOAApplicationHistoryReaderReadArguments()
+		if err != nil {
+			return serviceReply(v, "", err)
+		}
+		r.ws()
+		if r.pos != len(r.buf) {
+			return serviceReply(v, "", r.refuse("trailing_bytes"))
+		}
+		payload, err := d.invokeRead(args)
+		return serviceReply(v, payload, err)
+	default:
+		return serviceReply(v, "", DispatchError("unknown_method"))
+	}
+}
+func (d *ApplicationHistoryReaderDispatcher) invokeRead(args *oaApplicationHistoryReaderReadArguments) (payload Raw, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			payload = ""
+			if _, ok := p.(*Refusal); ok {
+				err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
+			} else {
+				err = &ServiceError{Code: ServiceErrorCodeHandlerError, Message: "handler failed"}
+			}
+		}
+	}()
+	var result ApplicationLogPage
+	result, err = d.Handler.Read(args.Target, args.Cursor, args.MaxRecords, args.MaxBytes)
+	if err != nil {
+		return
+	}
+	value := oaApplicationHistoryReaderReadResult{Value: result}
+	payload = Raw(encOAApplicationHistoryReaderReadResult(nil, &value, 1))
+	r := &reader{buf: []byte(payload), depth: 1}
+	r.ws()
+	if _, e := r.decodeOAApplicationHistoryReaderReadResult(); e != nil {
+		payload = ""
+		err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
+		return
+	}
+	r.ws()
+	if r.pos != len(r.buf) {
+		payload = ""
+		err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
+	}
+	return
+}
+
+type ApplicationHistoryObserver interface {
+	Observe(target ApplicationLogTarget, cursor string, maxRecords, maxBytes, waitMs int64) (ApplicationLogPage, error)
+}
+type ApplicationHistoryObserverTransport interface {
+	FrameExchanger
+}
+type ApplicationHistoryObserverClient struct {
+	transport ApplicationHistoryObserverTransport
+}
+
+func NewApplicationHistoryObserverClient(t ApplicationHistoryObserverTransport) *ApplicationHistoryObserverClient {
+	return &ApplicationHistoryObserverClient{transport: t}
+}
+
+type ApplicationHistoryObserverDispatcher struct{ Handler ApplicationHistoryObserver }
+
+func (c *ApplicationHistoryObserverClient) Observe(target ApplicationLogTarget, cursor string, maxRecords, maxBytes, waitMs int64) (result ApplicationLogPage, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			if e, ok := p.(*Refusal); ok {
+				err = e
+			} else {
+				panic(p)
+			}
+		}
+	}()
+	args := oaApplicationHistoryObserverObserveArguments{Target: target, Cursor: cursor, MaxRecords: maxRecords, MaxBytes: maxBytes, WaitMs: waitMs}
+	v := oaServiceFrame{Version: 1, Service: "abstraction.logging/observer@2", Method: "Observe", Arguments: Raw(encOAApplicationHistoryObserverObserveArguments(nil, &args, 1))}
+	frame := encOAServiceFrame(nil, &v, 0)
+	if _, err = servicePayload(frame); err != nil {
+		return
+	}
+	var response []byte
+	response, err = c.transport.ExchangeFrame(frame)
+	if err != nil {
+		return
+	}
+	var payload Raw
+	payload, err = serviceResponse(response, v.Service, v.Method)
+	if err != nil {
+		return
+	}
+	r := &reader{buf: []byte(payload), depth: 1}
+	r.ws()
+	var decoded *oaApplicationHistoryObserverObserveResult
+	decoded, err = r.decodeOAApplicationHistoryObserverObserveResult()
+	if err != nil {
+		return
+	}
+	_ = decoded
+	r.ws()
+	if r.pos != len(r.buf) {
+		err = r.refuse("trailing_bytes")
+		return
+	}
+	result = decoded.Value
+	return
+}
+
+// DescribeService is this dispatcher's service as abstraction.facade/endpoint@1 Describe lists it:
+// ready unless its handler implements Ready() (bool, string) and reports otherwise.
+func (d *ApplicationHistoryObserverDispatcher) DescribeService() (contract string, ready bool, why string) {
+	if h, ok := d.Handler.(interface{ Ready() (bool, string) }); ok {
+		if ready, why = h.Ready(); ready {
+			why = ""
+		}
+		return "abstraction.logging/observer@2", ready, why
+	}
+	return "abstraction.logging/observer@2", true, ""
+}
+
+// DescribeServiceMetadata returns optional handler display facts for Describe.
+// They grant no authority and do not change service admission.
+func (d *ApplicationHistoryObserverDispatcher) DescribeServiceMetadata() (guarantees []string, capabilities map[string]string) {
+	if h, ok := d.Handler.(interface {
+		DescribeMetadata() ([]string, map[string]string)
+	}); ok {
+		return h.DescribeMetadata()
+	}
+	return nil, nil
+}
+
+// ServiceContract is the wire name ServeEndpoint routes this dispatcher's frames by.
+func (d *ApplicationHistoryObserverDispatcher) ServiceContract() string {
+	return "abstraction.logging/observer@2"
+}
+func (d *ApplicationHistoryObserverDispatcher) WriteFrame(frame []byte) error {
+	v, err := servicePayload(frame)
+	if err != nil {
+		return err
+	}
+	if v.Service != "abstraction.logging/observer@2" {
+		return DispatchError("unknown_service")
+	}
+	switch v.Method {
+	case "Observe":
+		return DispatchError("wrong_mode")
+	default:
+		return DispatchError("unknown_method")
+	}
+}
+func (d *ApplicationHistoryObserverDispatcher) ExchangeFrame(frame []byte) ([]byte, error) {
+	v, err := servicePayload(frame)
+	if err != nil {
+		return nil, err
+	}
+	if v.Service == EndpointContract {
+		return DescribeEndpoint(frame, "", "", d)
+	}
+	if v.Service != "abstraction.logging/observer@2" {
+		return serviceReply(v, "", DispatchError("unknown_service"))
+	}
+	switch v.Method {
+	case "Observe":
+		r := &reader{buf: []byte(v.Arguments), depth: 1}
+		r.ws()
+		args, err := r.decodeOAApplicationHistoryObserverObserveArguments()
+		if err != nil {
+			return serviceReply(v, "", err)
+		}
+		r.ws()
+		if r.pos != len(r.buf) {
+			return serviceReply(v, "", r.refuse("trailing_bytes"))
+		}
+		payload, err := d.invokeObserve(args)
+		return serviceReply(v, payload, err)
+	default:
+		return serviceReply(v, "", DispatchError("unknown_method"))
+	}
+}
+func (d *ApplicationHistoryObserverDispatcher) invokeObserve(args *oaApplicationHistoryObserverObserveArguments) (payload Raw, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			payload = ""
+			if _, ok := p.(*Refusal); ok {
+				err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
+			} else {
+				err = &ServiceError{Code: ServiceErrorCodeHandlerError, Message: "handler failed"}
+			}
+		}
+	}()
+	var result ApplicationLogPage
+	result, err = d.Handler.Observe(args.Target, args.Cursor, args.MaxRecords, args.MaxBytes, args.WaitMs)
+	if err != nil {
+		return
+	}
+	value := oaApplicationHistoryObserverObserveResult{Value: result}
+	payload = Raw(encOAApplicationHistoryObserverObserveResult(nil, &value, 1))
+	r := &reader{buf: []byte(payload), depth: 1}
+	r.ws()
+	if _, e := r.decodeOAApplicationHistoryObserverObserveResult(); e != nil {
+		payload = ""
+		err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
+		return
+	}
+	r.ws()
+	if r.pos != len(r.buf) {
+		payload = ""
+		err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
+	}
+	return
+}
+
+type SourceReader interface {
+	Sources() (SourceCatalog, error)
+	Read(sourceID, cursor string, maxRecords, maxBytes int64) (SourcePage, error)
+	StartAtEnd(sourceID string) (SourcePage, error)
+}
+type SourceReaderTransport interface {
+	FrameExchanger
+}
+type SourceReaderClient struct{ transport SourceReaderTransport }
+
+func NewSourceReaderClient(t SourceReaderTransport) *SourceReaderClient {
+	return &SourceReaderClient{transport: t}
+}
+
+type SourceReaderDispatcher struct{ Handler SourceReader }
+
+func (c *SourceReaderClient) Sources() (result SourceCatalog, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			if e, ok := p.(*Refusal); ok {
+				err = e
+			} else {
+				panic(p)
+			}
+		}
+	}()
+	args := oaSourceReaderSourcesArguments{}
+	v := oaServiceFrame{Version: 1, Service: "abstraction.logging/source-reader@1", Method: "Sources", Arguments: Raw(encOASourceReaderSourcesArguments(nil, &args, 1))}
+	frame := encOAServiceFrame(nil, &v, 0)
+	if _, err = servicePayload(frame); err != nil {
+		return
+	}
+	var response []byte
+	response, err = c.transport.ExchangeFrame(frame)
+	if err != nil {
+		return
+	}
+	var payload Raw
+	payload, err = serviceResponse(response, v.Service, v.Method)
+	if err != nil {
+		return
+	}
+	r := &reader{buf: []byte(payload), depth: 1}
+	r.ws()
+	var decoded *oaSourceReaderSourcesResult
+	decoded, err = r.decodeOASourceReaderSourcesResult()
+	if err != nil {
+		return
+	}
+	_ = decoded
+	r.ws()
+	if r.pos != len(r.buf) {
+		err = r.refuse("trailing_bytes")
+		return
+	}
+	result = decoded.Value
+	return
+}
+func (c *SourceReaderClient) Read(sourceID, cursor string, maxRecords, maxBytes int64) (result SourcePage, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			if e, ok := p.(*Refusal); ok {
+				err = e
+			} else {
+				panic(p)
+			}
+		}
+	}()
+	args := oaSourceReaderReadArguments{SourceID: sourceID, Cursor: cursor, MaxRecords: maxRecords, MaxBytes: maxBytes}
+	v := oaServiceFrame{Version: 1, Service: "abstraction.logging/source-reader@1", Method: "Read", Arguments: Raw(encOASourceReaderReadArguments(nil, &args, 1))}
+	frame := encOAServiceFrame(nil, &v, 0)
+	if _, err = servicePayload(frame); err != nil {
+		return
+	}
+	var response []byte
+	response, err = c.transport.ExchangeFrame(frame)
+	if err != nil {
+		return
+	}
+	var payload Raw
+	payload, err = serviceResponse(response, v.Service, v.Method)
+	if err != nil {
+		return
+	}
+	r := &reader{buf: []byte(payload), depth: 1}
+	r.ws()
+	var decoded *oaSourceReaderReadResult
+	decoded, err = r.decodeOASourceReaderReadResult()
+	if err != nil {
+		return
+	}
+	_ = decoded
+	r.ws()
+	if r.pos != len(r.buf) {
+		err = r.refuse("trailing_bytes")
+		return
+	}
+	result = decoded.Value
+	return
+}
+func (c *SourceReaderClient) StartAtEnd(sourceID string) (result SourcePage, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			if e, ok := p.(*Refusal); ok {
+				err = e
+			} else {
+				panic(p)
+			}
+		}
+	}()
+	args := oaSourceReaderStartAtEndArguments{SourceID: sourceID}
+	v := oaServiceFrame{Version: 1, Service: "abstraction.logging/source-reader@1", Method: "StartAtEnd", Arguments: Raw(encOASourceReaderStartAtEndArguments(nil, &args, 1))}
+	frame := encOAServiceFrame(nil, &v, 0)
+	if _, err = servicePayload(frame); err != nil {
+		return
+	}
+	var response []byte
+	response, err = c.transport.ExchangeFrame(frame)
+	if err != nil {
+		return
+	}
+	var payload Raw
+	payload, err = serviceResponse(response, v.Service, v.Method)
+	if err != nil {
+		return
+	}
+	r := &reader{buf: []byte(payload), depth: 1}
+	r.ws()
+	var decoded *oaSourceReaderStartAtEndResult
+	decoded, err = r.decodeOASourceReaderStartAtEndResult()
+	if err != nil {
+		return
+	}
+	_ = decoded
+	r.ws()
+	if r.pos != len(r.buf) {
+		err = r.refuse("trailing_bytes")
+		return
+	}
+	result = decoded.Value
+	return
+}
+
+// DescribeService is this dispatcher's service as abstraction.facade/endpoint@1 Describe lists it:
+// ready unless its handler implements Ready() (bool, string) and reports otherwise.
+func (d *SourceReaderDispatcher) DescribeService() (contract string, ready bool, why string) {
+	if h, ok := d.Handler.(interface{ Ready() (bool, string) }); ok {
+		if ready, why = h.Ready(); ready {
+			why = ""
+		}
+		return "abstraction.logging/source-reader@1", ready, why
+	}
+	return "abstraction.logging/source-reader@1", true, ""
+}
+
+// DescribeServiceMetadata returns optional handler display facts for Describe.
+// They grant no authority and do not change service admission.
+func (d *SourceReaderDispatcher) DescribeServiceMetadata() (guarantees []string, capabilities map[string]string) {
+	if h, ok := d.Handler.(interface {
+		DescribeMetadata() ([]string, map[string]string)
+	}); ok {
+		return h.DescribeMetadata()
+	}
+	return nil, nil
+}
+
+// ServiceContract is the wire name ServeEndpoint routes this dispatcher's frames by.
+func (d *SourceReaderDispatcher) ServiceContract() string {
+	return "abstraction.logging/source-reader@1"
+}
+func (d *SourceReaderDispatcher) WriteFrame(frame []byte) error {
+	v, err := servicePayload(frame)
+	if err != nil {
+		return err
+	}
+	if v.Service != "abstraction.logging/source-reader@1" {
+		return DispatchError("unknown_service")
+	}
+	switch v.Method {
+	case "Sources":
+		return DispatchError("wrong_mode")
+	case "Read":
+		return DispatchError("wrong_mode")
+	case "StartAtEnd":
+		return DispatchError("wrong_mode")
+	default:
+		return DispatchError("unknown_method")
+	}
+}
+func (d *SourceReaderDispatcher) ExchangeFrame(frame []byte) ([]byte, error) {
+	v, err := servicePayload(frame)
+	if err != nil {
+		return nil, err
+	}
+	if v.Service == EndpointContract {
+		return DescribeEndpoint(frame, "", "", d)
+	}
+	if v.Service != "abstraction.logging/source-reader@1" {
+		return serviceReply(v, "", DispatchError("unknown_service"))
+	}
+	switch v.Method {
+	case "Sources":
+		r := &reader{buf: []byte(v.Arguments), depth: 1}
+		r.ws()
+		args, err := r.decodeOASourceReaderSourcesArguments()
+		if err != nil {
+			return serviceReply(v, "", err)
+		}
+		r.ws()
+		if r.pos != len(r.buf) {
+			return serviceReply(v, "", r.refuse("trailing_bytes"))
+		}
+		payload, err := d.invokeSources(args)
+		return serviceReply(v, payload, err)
+	case "Read":
+		r := &reader{buf: []byte(v.Arguments), depth: 1}
+		r.ws()
+		args, err := r.decodeOASourceReaderReadArguments()
+		if err != nil {
+			return serviceReply(v, "", err)
+		}
+		r.ws()
+		if r.pos != len(r.buf) {
+			return serviceReply(v, "", r.refuse("trailing_bytes"))
+		}
+		payload, err := d.invokeRead(args)
+		return serviceReply(v, payload, err)
+	case "StartAtEnd":
+		r := &reader{buf: []byte(v.Arguments), depth: 1}
+		r.ws()
+		args, err := r.decodeOASourceReaderStartAtEndArguments()
+		if err != nil {
+			return serviceReply(v, "", err)
+		}
+		r.ws()
+		if r.pos != len(r.buf) {
+			return serviceReply(v, "", r.refuse("trailing_bytes"))
+		}
+		payload, err := d.invokeStartAtEnd(args)
+		return serviceReply(v, payload, err)
+	default:
+		return serviceReply(v, "", DispatchError("unknown_method"))
+	}
+}
+func (d *SourceReaderDispatcher) invokeSources(args *oaSourceReaderSourcesArguments) (payload Raw, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			payload = ""
+			if _, ok := p.(*Refusal); ok {
+				err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
+			} else {
+				err = &ServiceError{Code: ServiceErrorCodeHandlerError, Message: "handler failed"}
+			}
+		}
+	}()
+	var result SourceCatalog
+	result, err = d.Handler.Sources()
+	if err != nil {
+		return
+	}
+	value := oaSourceReaderSourcesResult{Value: result}
+	payload = Raw(encOASourceReaderSourcesResult(nil, &value, 1))
+	r := &reader{buf: []byte(payload), depth: 1}
+	r.ws()
+	if _, e := r.decodeOASourceReaderSourcesResult(); e != nil {
+		payload = ""
+		err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
+		return
+	}
+	r.ws()
+	if r.pos != len(r.buf) {
+		payload = ""
+		err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
+	}
+	return
+}
+func (d *SourceReaderDispatcher) invokeRead(args *oaSourceReaderReadArguments) (payload Raw, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			payload = ""
+			if _, ok := p.(*Refusal); ok {
+				err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
+			} else {
+				err = &ServiceError{Code: ServiceErrorCodeHandlerError, Message: "handler failed"}
+			}
+		}
+	}()
+	var result SourcePage
+	result, err = d.Handler.Read(args.SourceID, args.Cursor, args.MaxRecords, args.MaxBytes)
+	if err != nil {
+		return
+	}
+	value := oaSourceReaderReadResult{Value: result}
+	payload = Raw(encOASourceReaderReadResult(nil, &value, 1))
+	r := &reader{buf: []byte(payload), depth: 1}
+	r.ws()
+	if _, e := r.decodeOASourceReaderReadResult(); e != nil {
+		payload = ""
+		err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
+		return
+	}
+	r.ws()
+	if r.pos != len(r.buf) {
+		payload = ""
+		err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
+	}
+	return
+}
+func (d *SourceReaderDispatcher) invokeStartAtEnd(args *oaSourceReaderStartAtEndArguments) (payload Raw, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			payload = ""
+			if _, ok := p.(*Refusal); ok {
+				err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
+			} else {
+				err = &ServiceError{Code: ServiceErrorCodeHandlerError, Message: "handler failed"}
+			}
+		}
+	}()
+	var result SourcePage
+	result, err = d.Handler.StartAtEnd(args.SourceID)
+	if err != nil {
+		return
+	}
+	value := oaSourceReaderStartAtEndResult{Value: result}
+	payload = Raw(encOASourceReaderStartAtEndResult(nil, &value, 1))
+	r := &reader{buf: []byte(payload), depth: 1}
+	r.ws()
+	if _, e := r.decodeOASourceReaderStartAtEndResult(); e != nil {
+		payload = ""
+		err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
+		return
+	}
+	r.ws()
+	if r.pos != len(r.buf) {
+		payload = ""
+		err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
+	}
+	return
+}
+
+func(r *reader)depthLimit()int{if r.limit>0 && r.limit<depthLimit{return r.limit};return depthLimit}
+
+func DecodeAttestationAt(in []byte,depth,limit int)(*Attestation,int,error){r:=&reader{buf:in,depth:depth,limit:limit};if depth<0||limit<1{return nil,0,r.refuse("depth_exceeded")};r.ws();v,e:=r.decodeAttestation();return v,r.pos,e}
+func EncodeAttestationAt(v *Attestation,depth int)[]byte{if depth<0||depth>=depthLimit{panic(&Refusal{Word:"depth_exceeded"})};out:=encAttestation(nil,v,depth);if _,_,e:=DecodeAttestationAt(out,depth,depthLimit);e!=nil{panic(e)};return out}
+func EncodeAttestation(v *Attestation)[]byte{return append(EncodeAttestationAt(v,0),"\n"...)}
+func DecodeAttestation(in []byte)(*Attestation,error){v,n,e:=DecodeAttestationAt(in,0,depthLimit);if e!=nil{return nil,e};r:=&reader{buf:in,pos:n};r.ws();if r.pos!=len(in){return nil,r.refuse("trailing_bytes")};return v,nil}
+
+func DecodeRecordAt(in []byte,depth,limit int)(*Record,int,error){r:=&reader{buf:in,depth:depth,limit:limit};if depth<0||limit<1{return nil,0,r.refuse("depth_exceeded")};r.ws();v,e:=r.decodeRecord();return v,r.pos,e}
+func EncodeRecordAt(v *Record,depth int)[]byte{if depth<0||depth>=depthLimit{panic(&Refusal{Word:"depth_exceeded"})};out:=encRecord(nil,v,depth);if _,_,e:=DecodeRecordAt(out,depth,depthLimit);e!=nil{panic(e)};return out}
+func EncodeRecord(v *Record)[]byte{return append(EncodeRecordAt(v,0),"\n"...)}
+func DecodeRecord(in []byte)(*Record,error){v,n,e:=DecodeRecordAt(in,0,depthLimit);if e!=nil{return nil,e};r:=&reader{buf:in,pos:n};r.ws();if r.pos!=len(in){return nil,r.refuse("trailing_bytes")};return v,nil}
+
+func DecodePageAt(in []byte,depth,limit int)(*Page,int,error){r:=&reader{buf:in,depth:depth,limit:limit};if depth<0||limit<1{return nil,0,r.refuse("depth_exceeded")};r.ws();v,e:=r.decodePage();return v,r.pos,e}
+func EncodePageAt(v *Page,depth int)[]byte{if depth<0||depth>=depthLimit{panic(&Refusal{Word:"depth_exceeded"})};out:=encPage(nil,v,depth);if _,_,e:=DecodePageAt(out,depth,depthLimit);e!=nil{panic(e)};return out}
+func EncodePage(v *Page)[]byte{return append(EncodePageAt(v,0),"\n"...)}
+func DecodePage(in []byte)(*Page,error){v,n,e:=DecodePageAt(in,0,depthLimit);if e!=nil{return nil,e};r:=&reader{buf:in,pos:n};r.ws();if r.pos!=len(in){return nil,r.refuse("trailing_bytes")};return v,nil}
+
+func DecodeApplicationLogTargetAt(in []byte,depth,limit int)(*ApplicationLogTarget,int,error){r:=&reader{buf:in,depth:depth,limit:limit};if depth<0||limit<1{return nil,0,r.refuse("depth_exceeded")};r.ws();v,e:=r.decodeApplicationLogTarget();return v,r.pos,e}
+func EncodeApplicationLogTargetAt(v *ApplicationLogTarget,depth int)[]byte{if depth<0||depth>=depthLimit{panic(&Refusal{Word:"depth_exceeded"})};out:=encApplicationLogTarget(nil,v,depth);if _,_,e:=DecodeApplicationLogTargetAt(out,depth,depthLimit);e!=nil{panic(e)};return out}
+func EncodeApplicationLogTarget(v *ApplicationLogTarget)[]byte{return append(EncodeApplicationLogTargetAt(v,0),"\n"...)}
+func DecodeApplicationLogTarget(in []byte)(*ApplicationLogTarget,error){v,n,e:=DecodeApplicationLogTargetAt(in,0,depthLimit);if e!=nil{return nil,e};r:=&reader{buf:in,pos:n};r.ws();if r.pos!=len(in){return nil,r.refuse("trailing_bytes")};return v,nil}
+
+func DecodeApplicationLogResourceAt(in []byte,depth,limit int)(*ApplicationLogResource,int,error){r:=&reader{buf:in,depth:depth,limit:limit};if depth<0||limit<1{return nil,0,r.refuse("depth_exceeded")};r.ws();v,e:=r.decodeApplicationLogResource();return v,r.pos,e}
+func EncodeApplicationLogResourceAt(v *ApplicationLogResource,depth int)[]byte{if depth<0||depth>=depthLimit{panic(&Refusal{Word:"depth_exceeded"})};out:=encApplicationLogResource(nil,v,depth);if _,_,e:=DecodeApplicationLogResourceAt(out,depth,depthLimit);e!=nil{panic(e)};return out}
+func EncodeApplicationLogResource(v *ApplicationLogResource)[]byte{return append(EncodeApplicationLogResourceAt(v,0),"\n"...)}
+func DecodeApplicationLogResource(in []byte)(*ApplicationLogResource,error){v,n,e:=DecodeApplicationLogResourceAt(in,0,depthLimit);if e!=nil{return nil,e};r:=&reader{buf:in,pos:n};r.ws();if r.pos!=len(in){return nil,r.refuse("trailing_bytes")};return v,nil}
+
+func DecodeApplicationLogPageAt(in []byte,depth,limit int)(*ApplicationLogPage,int,error){r:=&reader{buf:in,depth:depth,limit:limit};if depth<0||limit<1{return nil,0,r.refuse("depth_exceeded")};r.ws();v,e:=r.decodeApplicationLogPage();return v,r.pos,e}
+func EncodeApplicationLogPageAt(v *ApplicationLogPage,depth int)[]byte{if depth<0||depth>=depthLimit{panic(&Refusal{Word:"depth_exceeded"})};out:=encApplicationLogPage(nil,v,depth);if _,_,e:=DecodeApplicationLogPageAt(out,depth,depthLimit);e!=nil{panic(e)};return out}
+func EncodeApplicationLogPage(v *ApplicationLogPage)[]byte{return append(EncodeApplicationLogPageAt(v,0),"\n"...)}
+func DecodeApplicationLogPage(in []byte)(*ApplicationLogPage,error){v,n,e:=DecodeApplicationLogPageAt(in,0,depthLimit);if e!=nil{return nil,e};r:=&reader{buf:in,pos:n};r.ws();if r.pos!=len(in){return nil,r.refuse("trailing_bytes")};return v,nil}
+
+func DecodeSourceDescriptorAt(in []byte,depth,limit int)(*SourceDescriptor,int,error){r:=&reader{buf:in,depth:depth,limit:limit};if depth<0||limit<1{return nil,0,r.refuse("depth_exceeded")};r.ws();v,e:=r.decodeSourceDescriptor();return v,r.pos,e}
+func EncodeSourceDescriptorAt(v *SourceDescriptor,depth int)[]byte{if depth<0||depth>=depthLimit{panic(&Refusal{Word:"depth_exceeded"})};out:=encSourceDescriptor(nil,v,depth);if _,_,e:=DecodeSourceDescriptorAt(out,depth,depthLimit);e!=nil{panic(e)};return out}
+func EncodeSourceDescriptor(v *SourceDescriptor)[]byte{return append(EncodeSourceDescriptorAt(v,0),"\n"...)}
+func DecodeSourceDescriptor(in []byte)(*SourceDescriptor,error){v,n,e:=DecodeSourceDescriptorAt(in,0,depthLimit);if e!=nil{return nil,e};r:=&reader{buf:in,pos:n};r.ws();if r.pos!=len(in){return nil,r.refuse("trailing_bytes")};return v,nil}
+
+func DecodeSourceCatalogAt(in []byte,depth,limit int)(*SourceCatalog,int,error){r:=&reader{buf:in,depth:depth,limit:limit};if depth<0||limit<1{return nil,0,r.refuse("depth_exceeded")};r.ws();v,e:=r.decodeSourceCatalog();return v,r.pos,e}
+func EncodeSourceCatalogAt(v *SourceCatalog,depth int)[]byte{if depth<0||depth>=depthLimit{panic(&Refusal{Word:"depth_exceeded"})};out:=encSourceCatalog(nil,v,depth);if _,_,e:=DecodeSourceCatalogAt(out,depth,depthLimit);e!=nil{panic(e)};return out}
+func EncodeSourceCatalog(v *SourceCatalog)[]byte{return append(EncodeSourceCatalogAt(v,0),"\n"...)}
+func DecodeSourceCatalog(in []byte)(*SourceCatalog,error){v,n,e:=DecodeSourceCatalogAt(in,0,depthLimit);if e!=nil{return nil,e};r:=&reader{buf:in,pos:n};r.ws();if r.pos!=len(in){return nil,r.refuse("trailing_bytes")};return v,nil}
+
+func DecodeProducerClaimAt(in []byte,depth,limit int)(*ProducerClaim,int,error){r:=&reader{buf:in,depth:depth,limit:limit};if depth<0||limit<1{return nil,0,r.refuse("depth_exceeded")};r.ws();v,e:=r.decodeProducerClaim();return v,r.pos,e}
+func EncodeProducerClaimAt(v *ProducerClaim,depth int)[]byte{if depth<0||depth>=depthLimit{panic(&Refusal{Word:"depth_exceeded"})};out:=encProducerClaim(nil,v,depth);if _,_,e:=DecodeProducerClaimAt(out,depth,depthLimit);e!=nil{panic(e)};return out}
+func EncodeProducerClaim(v *ProducerClaim)[]byte{return append(EncodeProducerClaimAt(v,0),"\n"...)}
+func DecodeProducerClaim(in []byte)(*ProducerClaim,error){v,n,e:=DecodeProducerClaimAt(in,0,depthLimit);if e!=nil{return nil,e};r:=&reader{buf:in,pos:n};r.ws();if r.pos!=len(in){return nil,r.refuse("trailing_bytes")};return v,nil}
+
+func DecodeSourceRecordAt(in []byte,depth,limit int)(*SourceRecord,int,error){r:=&reader{buf:in,depth:depth,limit:limit};if depth<0||limit<1{return nil,0,r.refuse("depth_exceeded")};r.ws();v,e:=r.decodeSourceRecord();return v,r.pos,e}
+func EncodeSourceRecordAt(v *SourceRecord,depth int)[]byte{if depth<0||depth>=depthLimit{panic(&Refusal{Word:"depth_exceeded"})};out:=encSourceRecord(nil,v,depth);if _,_,e:=DecodeSourceRecordAt(out,depth,depthLimit);e!=nil{panic(e)};return out}
+func EncodeSourceRecord(v *SourceRecord)[]byte{return append(EncodeSourceRecordAt(v,0),"\n"...)}
+func DecodeSourceRecord(in []byte)(*SourceRecord,error){v,n,e:=DecodeSourceRecordAt(in,0,depthLimit);if e!=nil{return nil,e};r:=&reader{buf:in,pos:n};r.ws();if r.pos!=len(in){return nil,r.refuse("trailing_bytes")};return v,nil}
+
+func DecodeSourcePageAt(in []byte,depth,limit int)(*SourcePage,int,error){r:=&reader{buf:in,depth:depth,limit:limit};if depth<0||limit<1{return nil,0,r.refuse("depth_exceeded")};r.ws();v,e:=r.decodeSourcePage();return v,r.pos,e}
+func EncodeSourcePageAt(v *SourcePage,depth int)[]byte{if depth<0||depth>=depthLimit{panic(&Refusal{Word:"depth_exceeded"})};out:=encSourcePage(nil,v,depth);if _,_,e:=DecodeSourcePageAt(out,depth,depthLimit);e!=nil{panic(e)};return out}
+func EncodeSourcePage(v *SourcePage)[]byte{return append(EncodeSourcePageAt(v,0),"\n"...)}
+func DecodeSourcePage(in []byte)(*SourcePage,error){v,n,e:=DecodeSourcePageAt(in,0,depthLimit);if e!=nil{return nil,e};r:=&reader{buf:in,pos:n};r.ws();if r.pos!=len(in){return nil,r.refuse("trailing_bytes")};return v,nil}

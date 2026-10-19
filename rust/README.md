@@ -1,5 +1,7 @@
 # Generated Rust logging protocol package
 
+*For Rust client-library authors.*
+
 Install the runtime first: https://openabstractions.org/adopt.html
 
 `abstraction-logging-api` compiles the generated `../rs/abstraction/logging/rec.rs`

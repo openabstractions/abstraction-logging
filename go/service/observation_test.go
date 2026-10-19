@@ -34,7 +34,9 @@ func observationHost(t *testing.T, out logging.Sink, denied bool) (*Host, string
 	if runtime.GOOS == "darwin" {
 		t.Skip("current Program proof limitation")
 	}
-	endpoint := listen.Endpoint(fmt.Sprintf("lo-%d-%d", os.Getpid(), time.Now().UnixNano()))
+	// The package's counter, not the wall clock: Go's clock on Windows steps
+	// every timer tick, and this test makes two hosts back to back.
+	endpoint := listen.Endpoint(fmt.Sprintf("lo-%d-%d", os.Getpid(), appTestID.Add(1)))
 	h, e := Listen(endpoint, out)
 	if e != nil {
 		t.Fatal(e)
