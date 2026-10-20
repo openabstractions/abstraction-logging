@@ -12,6 +12,7 @@ import (
 
 	logging "github.com/openabstractions/abstraction-logging/go"
 	"github.com/openabstractions/abstraction-logging/go/client"
+	"github.com/openabstractions/abstraction-storage/go/layout"
 )
 
 const loggingUsage = `Usage: openabstractions serve logging [options]
@@ -61,11 +62,11 @@ func Serve(args []string) error {
 		return fmt.Errorf("%w: logging: unexpected arguments", ErrUsage)
 	}
 	if *out == "" {
-		cache, err := os.UserCacheDir()
+		log, err := DefaultRecordsPath()
 		if err != nil {
 			return err
 		}
-		*out = filepath.Join(cache, "openabstractions", "logging", "records.jsonl")
+		*out = log
 	}
 	if err := os.MkdirAll(filepath.Dir(*out), 0700); err != nil {
 		return err
@@ -88,3 +89,7 @@ func Serve(args []string) error {
 	fmt.Fprintln(os.Stdout, "logging: listening", *endpoint)
 	return host.Serve(ctx)
 }
+
+// DefaultRecordsPath is the records log the logging command and the runtime
+// both write when none is named (layout.RecordsLog, ST-2 ruling 2a).
+func DefaultRecordsPath() (string, error) { return layout.RecordsLog() }

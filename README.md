@@ -4,7 +4,7 @@
 
 Send structured application events to one local service and inspect bounded
 history later. The service chooses the destination, attributes the caller and
-keeps retained records. Applications never need the service's log-file path.
+keeps retained [records](https://openabstractions.github.io/reference.html#concept-log.record). Applications never need the service's log-file path.
 A service in place of each program's own local logger gives one history for
 the whole machine, with each record attributed to the program that wrote it by
 what the kernel reports about the caller (see
@@ -21,13 +21,13 @@ contracts through the shared local transport.
 
 The [permission journey](https://github.com/openabstractions/abstractions/blob/main/examples/rights-playground/README.md)
 explains the common operation/resource model and its accepted one/all breadth
-rules. Application-scoped log history and the protected-source OS authorization
-path retain their own implementation prerequisites; the current history API
-below uses its existing account-wide gate.
+rules. Application-scoped history is served: `abstraction.logging/reader@2`
+and `observer@2` read one application's records, or every application's,
+under rights' typed application-log target (CONTRACT.md LOG-P5 to LOG-P8).
 
-## Send a record
+## Send a [record](https://openabstractions.github.io/reference.html#concept-log.record)
 
-Go callers can install `logging.Default("my-app")` as a `slog.Handler`. It
+Go callers can install [`logging.Default("my-app")`](https://openabstractions.github.io/reference.html#concept-logging.default-handler) as a `slog.Handler`. It
 resolves and retains one verified installed-runtime binding.
 
 ```go
@@ -77,7 +77,7 @@ Standard `slog` and Python's `logging` discard a handler's write errors; an
 application that needs explicit delivery diagnostics calls the resolved
 client's error-returning methods directly.
 
-Sink completion confirms local frame submission and carries no durable
+[Sink](https://openabstractions.github.io/reference.html#concept-log.sink) completion confirms local frame submission and carries no durable
 logging receipt. Reader and observer contracts expose bounded history,
 explicit gap and refusal outcomes. See [CONTRACT.md](CONTRACT.md) and
 [logging.thrift](logging.thrift) for the service behavior and limits.
@@ -130,6 +130,18 @@ The user, machine and run retention controls, machine locking, provenance and
 stamp remain accepted config `@2` work. Current config `@1` has no retention
 settings. Retention touches only this provider's completed log segments.
 
+Go service owners needing exact audit retention can use
+`FileSink.EncodeAttributedExact(record, emitter, physicalCap)` for the complete
+row size check and `WriteAttributedExact` for append, or bind the same cap with
+`WithExactEmitter`. These additive helpers preserve every value and private
+emitter evidence, including the newline in the cap. They require the existing
+owned single-writer retained store. The service derives its finite cap from
+its admitted inputs and metadata; a size fit does not reserve disk space.
+Ordinary `MaxLine`, attributed writes and shrink behavior remain unchanged.
+Current history profiles keep their 65536-byte output and 1 MiB scanned-work
+bounds; an oversized first row returns `record_too_large`. Exact retention
+does not promise that every audit row can be retrieved through those profiles.
+
 A small-limit fixture writes 200 records in an automatically removed temporary
 directory, checks the retained byte bound, and demonstrates an old cursor gap:
 
@@ -146,7 +158,7 @@ replace `go` after `-C` with `openabstractions-flat/abstraction-logging/go`.
   durable persistence receipt.
 - Standard `slog` discards handler errors. Use the resolved client directly
   when the application must react to delivery failure.
-- The installed macOS runtime binds protected IPC calls to Program proof over
+- The installed macOS runtime binds protected IPC calls to [Program](https://openabstractions.github.io/reference.html#concept-identity.listener-program-need) proof over
   XPC. Standalone Unix-socket calls lack that proof and fail closed. The retained
   [0.3.0 installed check](https://github.com/openabstractions/abstractions/blob/main/research/release-0.3.0/macos-installed/logs/installed_check.log)
   resolved the logging XPC endpoint; its
@@ -183,6 +195,7 @@ This reference records compiled receiving support; RIGHTS.json names the compila
 | Action | Resource profile | Owning operations | First-use targets | Compiled receiver |
 |---|---|---|---|---|
 | `abstraction.logging/history.read` | `abstraction.logging/application-log@1` | `abstraction.logging/reader@2#Read`, `abstraction.logging/observer@2#Observe` | One, All | served in compiled context |
-| `abstraction.logging/history.read` | `abstraction.rights/legacy-exact-string@1` | `abstraction.logging/reader@1#Read`, `abstraction.logging/observer@1#Observe`, `abstraction.logging/source-reader@1#Sources`, `abstraction.logging/source-reader@1#Read`, `abstraction.logging/source-reader@1#StartAtEnd` | `none` | served in compiled context |
+| `abstraction.logging/history.read` | `abstraction.logging/caller-log@1` | `abstraction.logging/reader@2#ReadAboutCaller` | One | served in compiled context |
+| `abstraction.logging/history.read` | `abstraction.rights/legacy-exact-string@1` | `abstraction.logging/reader@1#Read`, `abstraction.logging/reader@1#Usage`, `abstraction.logging/observer@1#Observe`, `abstraction.logging/source-reader@1#Sources`, `abstraction.logging/source-reader@1#Read`, `abstraction.logging/source-reader@1#StartAtEnd` | `none` | served in compiled context |
 
 <!-- END GENERATED PERMISSION DEFINITIONS -->

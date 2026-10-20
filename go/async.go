@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	timestampwire "github.com/openabstractions/abstraction-logging/go/abstraction/logging"
 	"io"
 	"math/rand/v2"
 	"os"
@@ -32,15 +33,20 @@ const (
 	// DefaultAsyncCapacity is the queue bound when AsyncOptions.Capacity is zero.
 	DefaultAsyncCapacity = 1024
 	// DefaultWriteTimeout bounds each delivery when AsyncOptions.WriteTimeout is zero.
-	DefaultWriteTimeout = 5 * time.Second
+	DefaultWriteTimeout = time.Duration(timestampwire.DefaultWriteTimeoutMs) * time.Millisecond
 	// DefaultInitialBackoff is the wait before the first retry [LOG-S12].
-	DefaultInitialBackoff = 100 * time.Millisecond
+	DefaultInitialBackoff = time.Duration(timestampwire.DefaultInitialBackoffMs) * time.Millisecond
 	// DefaultMaxBackoff caps the doubling wait between retries [LOG-S12].
-	DefaultMaxBackoff = 5 * time.Second
+	DefaultMaxBackoff = time.Duration(timestampwire.DefaultMaxBackoffMs) * time.Millisecond
 	// BackoffJitter varies each wait by up to this fraction either way.
 	BackoffJitter = 0.2
 	// GapMessage is the message of the WARN record a recovery delivers [LOG-S13].
-	GapMessage = "records dropped while the sink was unreachable"
+	GapMessage = timestampwire.WriterGapMessage
+	// Preserve the public untyped constants and require canonical-value equality.
+	_ = uint(DefaultAsyncCapacity - timestampwire.DefaultAsyncCapacity)
+	_ = uint(timestampwire.DefaultAsyncCapacity - DefaultAsyncCapacity)
+	_ = uint(BackoffJitter*100 - timestampwire.WriterBackoffJitterPercent)
+	_ = uint(timestampwire.WriterBackoffJitterPercent - BackoffJitter*100)
 )
 
 // Rebinder is a sink that can resolve its service again. AsyncSink calls
@@ -129,7 +135,7 @@ type AsyncSink struct {
 // NewAsyncSink starts the delivery goroutine. Call Close to stop it.
 func NewAsyncSink(inner Sink, opts AsyncOptions) *AsyncSink {
 	if opts.Capacity <= 0 {
-		opts.Capacity = DefaultAsyncCapacity
+		opts.Capacity = int(timestampwire.DefaultAsyncCapacity)
 	}
 	if opts.WriteTimeout == 0 {
 		opts.WriteTimeout = DefaultWriteTimeout
@@ -410,13 +416,11 @@ func (s *AsyncSink) gapRecord() Record {
 		Identity: Identity{Claim(s.opts.Program)},
 		Attrs: map[string]string{
 			"dropped": strconv.FormatUint(lost, 10),
-			"since":   since.UTC().Format(instantLayout),
-			"until":   until.UTC().Format(instantLayout),
+			"since":   timestampwire.FormatTimestamp(since),
+			"until":   timestampwire.FormatTimestamp(until),
 		},
 	}
 }
-
-const instantLayout = "2006-01-02T15:04:05.000000Z"
 
 // giveUp counts the head record Failed and the records behind it Abandoned.
 func (s *AsyncSink) giveUp() {
@@ -456,7 +460,8 @@ func (s *AsyncSink) deliver(ctx context.Context, r Record) error {
 
 // jittered varies d by up to BackoffJitter either way.
 func jittered(d time.Duration) time.Duration {
-	return time.Duration(float64(d) * (1 - BackoffJitter + 2*BackoffJitter*rand.Float64()))
+	const jitter = float64(timestampwire.WriterBackoffJitterPercent) / 100
+	return time.Duration(float64(d) * (1 - jitter + 2*jitter*rand.Float64()))
 }
 
 // failureClass names a failure on the default reporter's line: the resolution

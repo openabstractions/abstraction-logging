@@ -171,6 +171,33 @@ func (p *replay) apply(f []string) string {
 			r.Msg = strings.Repeat("x", n)
 		}
 		return "ok"
+	case "text":
+		// text <alias> <content>: put the content in the message, the job and
+		// one attribute, encode, decode, and compare bytes [LOG-R9]. The body
+		// never carries the content itself.
+		r := p.records[arg(1)]
+		if r == nil || len(f) != 3 {
+			return "invalid"
+		}
+		content := arg(2)
+		r.Msg, r.Job = content, content
+		if r.Attrs == nil {
+			r.Attrs = map[string]string{}
+		}
+		r.Attrs["text"] = content
+		b, err := r.Encode()
+		if err != nil {
+			return "refused"
+		}
+		back, err := logging.DecodeRecord(bytes.TrimSuffix(b, []byte("\n")))
+		if err != nil {
+			return "refused"
+		}
+		same := back.Msg == content && back.Job == content && back.Attrs["text"] == content
+		if same {
+			return "ok same=yes"
+		}
+		return "ok same=no"
 	case "job":
 		r := p.records[arg(1)]
 		n, err := strconv.Atoi(arg(2))

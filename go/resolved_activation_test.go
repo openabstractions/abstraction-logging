@@ -64,6 +64,13 @@ func (sinkResolver) Resolve(request facade.ResolveRequest) (facade.ResolveResult
 		Contract: request.Contracts[0], Scope: facade.ScopeLocal, Transport: resolution.LocalTransport, Endpoint: "activated-provider"}}, nil
 }
 
+func (r sinkResolver) ResolveOnMachine(request facade.ResolveRequest, bindingName string) (facade.ResolveResult, error) {
+	if bindingName != "" {
+		return facade.ResolveResult{}, errors.New("fixture resolver has no paired machines")
+	}
+	return r.Resolve(request)
+}
+
 // serveResolver answers one resolver exchange at endpoint, as an activated
 // runtime would.
 func serveResolver(t *testing.T, endpoint string) <-chan error {

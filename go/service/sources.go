@@ -5,9 +5,9 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
+	cursorcodec "github.com/openabstractions/abstraction-watch/go/cursor"
 	"regexp"
 	"sort"
 	"strings"
@@ -292,16 +292,16 @@ func (r *receiver) authorizeSource(peer *identity.Peer, sourceID string) wire.Hi
 func (r *receiver) sourcePeer() (*identity.Peer, error) {
 	peer, err := r.call.Peer()
 	if err != nil {
-		return nil, &wire.ServiceError{Code: "caller_unavailable", Message: "caller identity could not be rechecked"}
+		return nil, &wire.ServiceError{Code: wire.ServiceErrorCodeCallerUnavailable, Message: "caller identity could not be rechecked"}
 	}
 	if _, err = peer.Path.AtLeast(listen.Program.Path); err != nil {
-		return nil, &wire.ServiceError{Code: "identity_required", Message: "kernel program identity required"}
+		return nil, &wire.ServiceError{Code: wire.ServiceErrorCodeIdentityRequired, Message: "kernel program identity required"}
 	}
 	if _, err = peer.User.AtLeast(listen.Program.User); err != nil {
-		return nil, &wire.ServiceError{Code: "identity_required", Message: "kernel user identity required"}
+		return nil, &wire.ServiceError{Code: wire.ServiceErrorCodeIdentityRequired, Message: "kernel user identity required"}
 	}
 	if _, err = peer.Process.AtLeast(listen.Program.Process); err != nil {
-		return nil, &wire.ServiceError{Code: "identity_required", Message: "kernel process identity required"}
+		return nil, &wire.ServiceError{Code: wire.ServiceErrorCodeIdentityRequired, Message: "kernel process identity required"}
 	}
 	return peer, nil
 }
@@ -488,21 +488,11 @@ func validPageOutcome(value wire.PageOutcome) bool {
 
 func (s *SourceService) sealCursor(sourceID, native string) (string, error) {
 	plain := []byte(sourceID + "\x00" + native)
-	nonce := make([]byte, s.seal.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return "", err
-	}
-	sealed := s.seal.Seal(nonce, nonce, plain, nil)
-	return base64.RawURLEncoding.EncodeToString(sealed), nil
+	return cursorcodec.Seal(s.seal, plain, nil)
 }
 
 func (s *SourceService) open(cursor string) (native, sourceID string) {
-	sealed, err := base64.RawURLEncoding.DecodeString(cursor)
-	if err != nil || len(sealed) < s.seal.NonceSize()+s.seal.Overhead() {
-		return "", ""
-	}
-	nonce, ciphertext := sealed[:s.seal.NonceSize()], sealed[s.seal.NonceSize():]
-	plain, err := s.seal.Open(nil, nonce, ciphertext, nil)
+	plain, err := cursorcodec.Unseal(s.seal, cursor, nil)
 	if err != nil {
 		return "", ""
 	}

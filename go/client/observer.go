@@ -9,15 +9,26 @@ import (
 )
 
 // Observer binds the optional long-poll interface. It waits DefaultTimeout by default.
-type Observer struct{ transport listen.FrameClient }
+type Observer struct {
+	transport listen.FrameClient
+	initErr   error
+}
 
 func NewObserver(endpoint string) *Observer {
-	return NewObserverWithTransport(listen.FrameClient{Endpoint: endpoint})
+	c := NewObserverWithTransport(listen.FrameClient{Endpoint: endpoint})
+	if endpoint == "" {
+		c.initErr = emptyEndpointError()
+	}
+	return c
 }
 
 // NewObserverWithTransport retains the caller's endpoint, server trust and waiting limits.
 func NewObserverWithTransport(transport listen.FrameClient) *Observer {
-	return &Observer{transport: transport.WithDefaults(DefaultTimeout, 1<<20)}
+	c := &Observer{transport: transport.WithDefaults(DefaultTimeout, 1<<20)}
+	if transport.Endpoint == "" && transport.Dialer == nil {
+		c.initErr = emptyEndpointError()
+	}
+	return c
 }
 
 // WithTimeout returns a reusable independent binding. A caller context may shorten this budget.
@@ -32,6 +43,9 @@ func (c *Observer) WithTimeout(timeout time.Duration) (*Observer, error) {
 
 // ObserveContext bounds waiting independently of logging. Transport cancellation gives no page.
 func (c *Observer) ObserveContext(ctx context.Context, cursor string, maxRecords, maxBytes, waitMS int64) (wire.Page, error) {
+	if c.initErr != nil {
+		return wire.Page{}, c.initErr
+	}
 	if err := ctx.Err(); err != nil {
 		return wire.Page{}, err
 	}

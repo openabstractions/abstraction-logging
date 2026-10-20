@@ -189,8 +189,10 @@ func (h *Handler) clone() *Handler {
 // put flattens one attribute, expanding groups into dotted keys. A nested map
 // would be the obvious alternative, and it is the wrong one: the value of a
 // shared sink is that `grep job=abc` works, and dotted keys keep every value on
-// the line that mentions it.
+// the line that mentions it. A slog.LogValuer is resolved first, as slog's
+// own handlers do, so a value that logs itself as a group flattens like one.
 func put(dst map[string]string, groups []string, a slog.Attr) {
+	a.Value = a.Value.Resolve()
 	key := a.Key
 	for i := len(groups) - 1; i >= 0; i-- {
 		key = groups[i] + "." + key

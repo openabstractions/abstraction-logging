@@ -26,6 +26,11 @@ func (s *observingSink) ObserveContext(ctx context.Context, c string, n, b, w in
 	return s.FileSink.ObserveContext(ctx, c, n, b, w)
 }
 
+func (s *observingSink) ObserveRechecked(ctx context.Context, c string, n, b, w int64, recheck func() error) (wire.Page, error) {
+	s.once.Do(func() { close(s.entered) })
+	return s.FileSink.ObserveRechecked(ctx, c, n, b, w, recheck)
+}
+
 type writeOnly struct{}
 
 func (writeOnly) Write(logging.Record) error { return nil }

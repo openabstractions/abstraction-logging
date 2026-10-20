@@ -32,7 +32,10 @@ func TestObservationDisconnectReleasesSlot(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("provider wait not entered")
 	}
-	if len(h.observers) != 1 {
+	for held := time.Now().Add(3 * time.Second); s.HistoryGate().Waiting() != 1 && time.Now().Before(held); {
+		runtime.Gosched()
+	}
+	if s.HistoryGate().Waiting() != 1 {
 		t.Fatal("missing observation slot")
 	}
 	cancel()
@@ -45,9 +48,9 @@ func TestObservationDisconnectReleasesSlot(t *testing.T) {
 		t.Fatal("caller did not cancel")
 	}
 	deadline := time.Now().Add(2 * time.Second)
-	for len(h.observers) != 0 || len(h.calls) != 0 {
+	for s.HistoryGate().Waiting() != 0 || len(h.calls) != 0 {
 		if time.Now().After(deadline) {
-			t.Fatalf("disconnected caller retained observer=%d calls=%d", len(h.observers), len(h.calls))
+			t.Fatalf("disconnected caller retained observer=%d calls=%d", s.HistoryGate().Waiting(), len(h.calls))
 		}
 		runtime.Gosched()
 	}

@@ -44,9 +44,38 @@
     {
       "definition": {
         "action": "abstraction.logging/history.read",
+        "owner_contract": "abstraction.logging/reader@2",
+        "operations": [
+          "abstraction.logging/reader@2#ReadAboutCaller"
+        ],
+        "resource_profile": "abstraction.logging/caller-log@1",
+        "resource_type": "abstraction.logging.ApplicationLogResource",
+        "enforced_by": [
+          "abstraction.logging/reader@2"
+        ],
+        "disclosure": "Read what OpenAbstractions recorded about this app's own requests: request and application command records with their outcomes. Excludes other apps' records and records other programs wrote. Supplies no native OS source authority and no action.",
+        "lifecycle": "Fixed to the rule subject; no program or target can be named. Removing the rule ends access at the next page.",
+        "first_use": "none",
+        "served": true
+      },
+      "label": "Read records about its own requests",
+      "supported_selectors": [
+        "one"
+      ],
+      "first_use_selectors": [
+        "one"
+      ],
+      "collection": "abstraction.logging/caller-requests@1",
+      "all_effect": "",
+      "request_type": "abstraction.logging.ApplicationLogResource"
+    },
+    {
+      "definition": {
+        "action": "abstraction.logging/history.read",
         "owner_contract": "abstraction.logging/reader@1",
         "operations": [
           "abstraction.logging/reader@1#Read",
+          "abstraction.logging/reader@1#Usage",
           "abstraction.logging/observer@1#Observe",
           "abstraction.logging/source-reader@1#Sources",
           "abstraction.logging/source-reader@1#Read",

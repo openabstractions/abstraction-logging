@@ -1,9 +1,11 @@
 package logging
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	watch "github.com/openabstractions/abstraction-watch/go"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -11,15 +13,55 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	wire "github.com/openabstractions/abstraction-logging/go/abstraction/logging"
+	"github.com/openabstractions/abstraction-logging/go/internal/sinkclock"
 )
 
-// LogsRetention is the provider's resolved logs_max_use and logs_max_retention.
+// LogsRetention is the legacy native logs_max_use and logs_max_retention policy.
 // MaxUse bounds the active file plus retained JSONL segments, in bytes. Zero
 // MaxRetention leaves age unset. Configuration precedence and text parsing are
 // owned by config; this native provider accepts their resolved values.
 type LogsRetention struct {
 	MaxUse       int64
 	MaxRetention time.Duration
+}
+
+// ResolvedLogsRetention accepts config-owned, fully resolved limits. A nil
+// limit is known unlimited; a non-nil zero is a bound of zero. Values are
+// copied when installed, so later caller mutations do not alter the policy.
+// Config owns defaults, parsing, precedence and locks.
+type ResolvedLogsRetention struct {
+	MaxUse       *int64
+	MaxRetention *time.Duration
+}
+
+func (p LogsRetention) resolved() (ResolvedLogsRetention, error) {
+	if p.MaxUse <= 0 || p.MaxRetention < 0 {
+		return ResolvedLogsRetention{}, ErrRetentionPolicy
+	}
+	out := ResolvedLogsRetention{MaxUse: &p.MaxUse}
+	if p.MaxRetention > 0 {
+		out.MaxRetention = &p.MaxRetention
+	}
+	return out, nil
+}
+
+func (p ResolvedLogsRetention) values() (LogsRetention, error) {
+	var out LogsRetention
+	if p.MaxUse != nil {
+		if *p.MaxUse < 0 {
+			return out, ErrRetentionPolicy
+		}
+		out.MaxUse = *p.MaxUse
+	}
+	if p.MaxRetention != nil {
+		if *p.MaxRetention < 0 {
+			return out, ErrRetentionPolicy
+		}
+		out.MaxRetention = *p.MaxRetention
+	}
+	return out, nil
 }
 
 var (
@@ -68,17 +110,22 @@ type historySegment struct {
 	name string
 	base int64
 	info os.FileInfo
+	// key is the segment's file identity, read from a handle on it by the
+	// identity owner (fileid.FileKeyOf); readers compare it with their own.
+	key string
 }
 
 type fileRetention struct {
-	policy   LogsRetention
-	root     *os.Root
-	archive  *os.Root
-	lock     *os.File
-	name     string
-	segments []historySegment
-	base     int64
-	now      func() time.Time
+	policy              LogsRetention
+	maxUseBounded       bool
+	maxRetentionBounded bool
+	root                *os.Root
+	archive             *os.Root
+	lock                *os.File
+	name                string
+	segments            []historySegment
+	base                int64
+	now                 func() time.Time
 }
 
 // OpenRetainedFileSink opens a service-owned, single-writer history. The active
@@ -87,8 +134,19 @@ type fileRetention struct {
 // Use OpenFileSink for shared append-only files. External writers and edits are
 // outside this provider's lifecycle.
 func OpenRetainedFileSink(path string, policy LogsRetention) (*FileSink, error) {
-	if policy.MaxUse <= 0 || policy.MaxRetention < 0 {
-		return nil, ErrRetentionPolicy
+	resolved, err := policy.resolved()
+	if err != nil {
+		return nil, err
+	}
+	return OpenResolvedRetainedFileSink(path, resolved)
+}
+
+// OpenResolvedRetainedFileSink opens the same service-owned retained history
+// with explicit bounded or unlimited byte and age limits.
+func OpenResolvedRetainedFileSink(path string, limits ResolvedLogsRetention) (*FileSink, error) {
+	policy, err := limits.values()
+	if err != nil {
+		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
@@ -97,8 +155,8 @@ func OpenRetainedFileSink(path string, policy LogsRetention) (*FileSink, error) 
 	if err != nil {
 		return nil, err
 	}
-	r := &fileRetention{policy: policy, root: root, name: filepath.Base(path), now: time.Now}
-	s := &FileSink{path: path, MaxLine: DefaultMaxLine, retention: r}
+	r := &fileRetention{policy: policy, maxUseBounded: limits.MaxUse != nil, maxRetentionBounded: limits.MaxRetention != nil, root: root, name: filepath.Base(path), now: sinkclock.Current}
+	s := &FileSink{path: path, MaxLine: DefaultMaxLine, retention: r, historyGate: watch.NewGate(watch.DefaultWaiters)}
 	fail := func(err error) (*FileSink, error) {
 		return nil, errors.Join(err, s.Close())
 	}
@@ -142,7 +200,11 @@ func OpenRetainedFileSink(path string, policy LogsRetention) (*FileSink, error) 
 		if info.Size() == 0 || base > (1<<63-1)-info.Size() {
 			return fail(fmt.Errorf("logging: invalid history segment %s", entry.Name()))
 		}
-		r.segments = append(r.segments, historySegment{entry.Name(), base, info})
+		key, err := entryKey(r.archive, entry.Name())
+		if err != nil {
+			return fail(err)
+		}
+		r.segments = append(r.segments, historySegment{entry.Name(), base, info, key})
 	}
 	sort.Slice(r.segments, func(i, j int) bool { return r.segments[i].base < r.segments[j].base })
 	for _, segment := range r.segments {
@@ -157,7 +219,47 @@ func OpenRetainedFileSink(path string, policy LogsRetention) (*FileSink, error) 
 	if err = s.collectRetainedLocked(0); err != nil {
 		return fail(err)
 	}
+	// Instants continue from the last one written before this Open, so a
+	// restart with a slower clock cannot append lower instants (LOG-P9).
+	s.lastAt = s.lastInstantLocked()
 	return s, nil
+}
+
+// lastInstantLocked reads the sink instant of the newest row that has one,
+// searching back through the newest nonempty segments' tails, one read each.
+func (s *FileSink) lastInstantLocked() time.Time {
+	segments, outcome := s.historySegmentsLocked()
+	if outcome != wire.PageOutcomePage {
+		return time.Time{}
+	}
+	for i := len(segments) - 1; i >= 0; i-- {
+		size := segments[i].info.Size()
+		if size == 0 {
+			continue
+		}
+		f, err := s.openHistorySegmentLocked(segments[i], i == len(segments)-1)
+		if err != nil {
+			return time.Time{}
+		}
+		tail := min(size, int64(MaxHistoryScanBytes)+1)
+		buf := make([]byte, tail)
+		n, _ := f.ReadAt(buf, size-tail)
+		f.Close()
+		// The newest row that has an instant: a row without one, from an
+		// earlier runtime, may end the tail.
+		buf = bytes.TrimSuffix(buf[:n], []byte{'\n'})
+		for len(buf) > 0 {
+			start := bytes.LastIndexByte(buf, '\n') + 1
+			if at, ok := storedAt(buf[start:]); ok {
+				return at
+			}
+			if start == 0 {
+				break
+			}
+			buf = buf[:start-1]
+		}
+	}
+	return time.Time{}
 }
 
 func segmentBase(name string) (int64, bool) {
@@ -219,15 +321,31 @@ func (s *FileSink) Collect() error {
 // A collection failure is reported and the tighter policy remains in force:
 // later writes must satisfy it or return an error.
 func (s *FileSink) SetRetention(policy LogsRetention) error {
+	resolved, err := policy.resolved()
+	if err != nil {
+		return err
+	}
+	return s.SetResolvedRetention(resolved)
+}
+
+// SetResolvedRetention installs config-owned limits in this retained history.
+// A collection failure is reported while the installed policy remains in force.
+func (s *FileSink) SetResolvedRetention(limits ResolvedLogsRetention) error {
+	policy, err := limits.values()
+	if err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if policy.MaxUse <= 0 || policy.MaxRetention < 0 || s.retention == nil {
+	if s.retention == nil {
 		return ErrRetentionPolicy
 	}
 	if s.historyClosed {
 		return os.ErrClosed
 	}
 	s.retention.policy = policy
+	s.retention.maxUseBounded = limits.MaxUse != nil
+	s.retention.maxRetentionBounded = limits.MaxRetention != nil
 	return s.collectRetainedLocked(0)
 }
 
@@ -256,33 +374,51 @@ func (s *FileSink) MaintainRetention(ctx context.Context, report func(error)) fu
 
 func (s *FileSink) prepareRetainedWriteLocked(bytes int64) error {
 	r := s.retention
-	if bytes > r.policy.MaxUse {
+	// A resolved zero limit is keep-nothing: the append still completes, then
+	// the same collector removes it. Other policies retain size admission.
+	if r.keepNothing() {
+		return s.collectRetainedLocked(0)
+	}
+	if r.maxUseBounded && bytes > r.policy.MaxUse {
 		return ErrRetentionRecord
 	}
 	return s.collectRetainedLocked(bytes)
 }
 
-func (s *FileSink) activeRetainedInfoLocked() (os.FileInfo, error) {
+func (r *fileRetention) keepNothing() bool {
+	return (r.maxUseBounded && r.policy.MaxUse == 0) || (r.maxRetentionBounded && r.policy.MaxRetention == 0)
+}
+
+// activeRetainedInfoLocked reads the active file's FileInfo and file key from
+// the writer's handle and checks that the active name still holds that file.
+func (s *FileSink) activeRetainedInfoLocked() (os.FileInfo, string, error) {
 	if s.f == nil {
-		return nil, os.ErrClosed
+		return nil, "", os.ErrClosed
 	}
-	info, err := s.f.Stat()
+	info, key, err := heldSegment(s.f)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	pathInfo, err := s.retention.root.Lstat(s.retention.name)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	if !pathInfo.Mode().IsRegular() || !os.SameFile(info, pathInfo) {
-		return nil, errRetainedHistoryChanged
+	if !pathInfo.Mode().IsRegular() {
+		return nil, "", errRetainedHistoryChanged
 	}
-	return info, nil
+	pathKey, err := entryKey(s.retention.root, s.retention.name)
+	if err != nil {
+		return nil, "", err
+	}
+	if pathKey != key {
+		return nil, "", errRetainedHistoryChanged
+	}
+	return info, key, nil
 }
 
 func (s *FileSink) collectRetainedLocked(incoming int64) error {
 	r := s.retention
-	info, err := s.activeRetainedInfoLocked()
+	info, key, err := s.activeRetainedInfoLocked()
 	if err != nil {
 		return err
 	}
@@ -292,14 +428,17 @@ func (s *FileSink) collectRetainedLocked(incoming int64) error {
 	now := r.now()
 	// Rotation size is an internal partition, never another policy key. Small
 	// limits still accept one complete record that fits MaxUse.
-	segmentLimit := min(maxLogSegment, max(int64(1), r.policy.MaxUse/8))
+	segmentLimit := maxLogSegment
+	if r.maxUseBounded {
+		segmentLimit = min(segmentLimit, max(int64(1), r.policy.MaxUse/8))
+	}
 	writeMonth := info.ModTime().UTC().Format("2006-01")
-	old := r.policy.MaxRetention > 0 && !info.ModTime().Add(r.policy.MaxRetention).After(now)
-	if info.Size() > 0 && (info.Size() > segmentLimit-incoming || writeMonth != now.UTC().Format("2006-01") || old) {
-		if err := s.rotateRetainedLocked(info); err != nil {
+	old := r.maxRetentionBounded && (r.policy.MaxRetention == 0 || !info.ModTime().Add(r.policy.MaxRetention).After(now))
+	if info.Size() > 0 && ((r.maxUseBounded && r.policy.MaxUse == 0) || info.Size() > segmentLimit-incoming || writeMonth != now.UTC().Format("2006-01") || old) {
+		if err := s.rotateRetainedLocked(info, key); err != nil {
 			return err
 		}
-		info, err = s.activeRetainedInfoLocked()
+		info, _, err = s.activeRetainedInfoLocked()
 		if err != nil {
 			return err
 		}
@@ -315,7 +454,7 @@ func (s *FileSink) collectRetainedLocked(incoming int64) error {
 	// old segment shield expired segments written after it.
 	for i := 0; i < len(r.segments); {
 		segment := r.segments[i]
-		if r.policy.MaxRetention > 0 && !segment.info.ModTime().Add(r.policy.MaxRetention).After(now) {
+		if r.maxRetentionBounded && (r.policy.MaxRetention == 0 || !segment.info.ModTime().Add(r.policy.MaxRetention).After(now)) {
 			if err := s.removeRetainedSegmentLocked(i); err != nil {
 				return err
 			}
@@ -324,14 +463,14 @@ func (s *FileSink) collectRetainedLocked(incoming int64) error {
 			i++
 		}
 	}
-	for used > r.policy.MaxUse && len(r.segments) > 0 {
+	for r.maxUseBounded && used > r.policy.MaxUse && len(r.segments) > 0 {
 		bytes := r.segments[0].info.Size()
 		if err := s.removeRetainedSegmentLocked(0); err != nil {
 			return err
 		}
 		used -= bytes
 	}
-	if used > r.policy.MaxUse {
+	if r.maxUseBounded && used > r.policy.MaxUse {
 		return ErrRetentionRecord
 	}
 	return nil
@@ -344,7 +483,12 @@ func (s *FileSink) removeRetainedSegmentLocked(index int) error {
 	if err != nil {
 		return err
 	}
-	if !current.Mode().IsRegular() || !os.SameFile(current, segment.info) || current.Size() != segment.info.Size() {
+	if !current.Mode().IsRegular() || current.Size() != segment.info.Size() {
+		return errRetainedHistoryChanged
+	}
+	if key, err := entryKey(r.archive, segment.name); err != nil {
+		return err
+	} else if key != segment.key {
 		return errRetainedHistoryChanged
 	}
 	if err := r.archive.Remove(segment.name); err != nil {
@@ -355,7 +499,9 @@ func (s *FileSink) removeRetainedSegmentLocked(index int) error {
 	return nil
 }
 
-func (s *FileSink) rotateRetainedLocked(info os.FileInfo) error {
+// rotateRetainedLocked seals the active file, whose FileInfo and file key the
+// caller read from the writer's handle; a rename keeps the key.
+func (s *FileSink) rotateRetainedLocked(info os.FileInfo, key string) error {
 	r := s.retention
 	if r.base > (1<<63-1)-info.Size() {
 		return fmt.Errorf("logging: history offset overflow")
@@ -374,7 +520,12 @@ func (s *FileSink) rotateRetainedLocked(info os.FileInfo) error {
 	if err := r.root.Rename(r.name, filepath.Join(r.name+".history", name)); err != nil {
 		return errors.Join(err, s.openRetainedActiveLocked())
 	}
-	r.segments = append(r.segments, historySegment{name, r.base, info})
+	// The sealed file's own modification time, read after the rename, is the
+	// segment's last write for the seek (LOG-P9); an open handle's view can lag.
+	if sealed, err := r.archive.Lstat(name); err == nil && sealed.Mode().IsRegular() && sealed.Size() == info.Size() {
+		info = sealed
+	}
+	r.segments = append(r.segments, historySegment{name, r.base, info, key})
 	r.base += info.Size()
 	// A crash after rename leaves a completed segment and no active file;
 	// Open reconstructs the offset and creates a fresh active file.
@@ -382,8 +533,7 @@ func (s *FileSink) rotateRetainedLocked(info os.FileInfo) error {
 }
 
 func (s *FileSink) notifyHistoryLocked() {
-	if s.historyChanged != nil && !s.historyClosed {
-		close(s.historyChanged)
-		s.historyChanged = make(chan struct{})
+	if !s.historyClosed {
+		s.historyGate.Advance()
 	}
 }

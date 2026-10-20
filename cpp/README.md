@@ -52,7 +52,7 @@ auto machine = abstraction::facade::discover();
 abstraction::logging::AsyncOptions options;
 options.program = "worker";
 auto events = abstraction::logging::make_async_handler(
-    machine.resolve_log({}, "local"), [machine] { return machine.resolve_log({}, "local"); }, options);
+    machine.resolve_log({}, abstraction::facade::Scope::Local), [machine] { return machine.resolve_log({}, abstraction::facade::Scope::Local); }, options);
 events->log(0, "worker started", {{"component", "worker"}});
 ```
 
@@ -72,7 +72,7 @@ independent server expectation. The host owns its output path.
 
 A successful `Log` or `Write` is **one-way local submission**, not a persistence
 receipt. `Write(const Record&)` is available when you already have a complete
-schema-defined record; invalid `schema` values are refused by generated codecs.
+schema-defined [record](https://openabstractions.github.io/reference.html#concept-log.record); invalid `schema` values are refused by generated codecs.
 The ordinary `Log` call avoids exposing these protocol details to applications.
 
 ## Build dependencies and scope

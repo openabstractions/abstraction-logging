@@ -1,0 +1,22 @@
+# requires: logging
+#
+# Record content is data. Each line below puts text that some logging library
+# once expanded, formatted or executed into the message, the job and an
+# attribute, then reads the record back. A binding that resolves a lookup,
+# fills a format directive or runs a substitution returns different bytes.
+record R 0
+text R ${jndi:ldap://x/a}
+text R ${${lower:j}ndi:ldap://x/a}
+text R %n%s%x
+text R {0}{}
+text R $(id)
+text R `id`
+text R #{7*7}
+
+# expect 2: ok same=yes [LOG-R9]
+# expect 3: ok same=yes [LOG-R9]
+# expect 4: ok same=yes [LOG-R9]
+# expect 5: ok same=yes [LOG-R9]
+# expect 6: ok same=yes [LOG-R9]
+# expect 7: ok same=yes [LOG-R9]
+# expect 8: ok same=yes [LOG-R9]

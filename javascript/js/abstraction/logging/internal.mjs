@@ -39,46 +39,14 @@ function strs(out, v, depth) {
 
 const isWs = (c) => c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d;
 
+// raw writes an opaque value's bytes as they are ([DEF-A3]).
 function raw(out, s, depth) {
   const b = typeof s === "string" ? ENC.encode(s) : s;
-  let i = 0;
-  while (i < b.length) {
-    const c = b[i];
-    if (isWs(c)) { i++; continue; }
-    if (c === 0x22) {
-      let j = i + 1;
-      while (j < b.length) {
-        if (b[j] === 0x5c) { j += 2; continue; }
-        if (b[j] === 0x22) { j++; break; }
-        j++;
-      }
-      for (let k = i; k < j; k++) out.byte(b[k]);
-      i = j;
-    } else if (c === 0x7b || c === 0x5b) {
-      out.byte(c);
-      i++;
-      let j = i;
-      while (j < b.length && isWs(b[j])) j++;
-      if (j < b.length && (b[j] === 0x7d || b[j] === 0x5d)) { out.byte(b[j]); i = j + 1; }
-      else { depth++; out.byte(0x0a); pad(out, depth); }
-    } else if (c === 0x7d || c === 0x5d) {
-      depth--;
-      out.byte(0x0a);
-      pad(out, depth);
-      out.byte(c);
-      i++;
-    } else if (c === 0x2c) {
-      out.ascii(",\n");
-      pad(out, depth);
-      i++;
-    } else if (c === 0x3a) {
-      out.ascii(": ");
-      i++;
-    } else {
-      out.byte(c);
-      i++;
-    }
-  }
+  // Whitespace around the value is not part of it.
+  let i = 0, j = b.length;
+  while (i < j && isWs(b[i])) i++;
+  while (j > i && isWs(b[j - 1])) j--;
+  for (let k = i; k < j; k++) out.byte(b[k]);
 }
 
 // A JavaScript string sorts by UTF-16 code unit, which puts U+1D11E before
@@ -152,6 +120,14 @@ export const PageOutcome = Object.freeze({
   Unsupported: "unsupported",
 });
 
+export const HistoryUsageOutcome = Object.freeze({
+  Available: "available",
+  Unavailable: "unavailable",
+  Corrupt: "corrupt",
+  Forbidden: "forbidden",
+  Invalid: "invalid",
+});
+
 export const HistoryPageOutcome = Object.freeze({
   Page: "page",
   Gap: "gap",
@@ -207,6 +183,18 @@ export const ServiceErrorCode = Object.freeze({
   PolicyUnavailable: "policy_unavailable",
   Forbidden: "forbidden",
 });
+
+export const defaultAsyncCapacity = 1024;
+
+export const defaultInitialBackoffMs = 100;
+
+export const defaultMaxBackoffMs = 5000;
+
+export const defaultWriteTimeoutMs = 5000;
+
+export const writerBackoffJitterPercent = 20;
+
+export const writerGapMessage = "records dropped while the sink was unreachable";
 
 export const historyErrorCodes = ["caller_unavailable", "identity_required", "wrong_user", "policy_unavailable", "forbidden"];
 
@@ -386,6 +374,75 @@ function writePage(out, v, depth) {
   esc(out, "at_end");
   out.ascii(": ");
   out.ascii(v.atEnd ? "true" : "false");
+  out.byte(0x0a);
+  pad(out, depth);
+  out.byte(0x7d);
+}
+
+function writeHistoryUsage(out, v, depth) {
+  if (v.maxUse !== undefined && (typeof v.maxUse !== "bigint")) throw new Refusal("wrong_type", 0);
+  if (v.maxUse !== undefined && v.maxUse !== null && (v.maxUse < -9223372036854775808n || v.maxUse > 9223372036854775807n)) throw new Refusal("number_spelling", 0);
+  if (v.maxRetentionMs !== undefined && (typeof v.maxRetentionMs !== "bigint")) throw new Refusal("wrong_type", 0);
+  if (v.maxRetentionMs !== undefined && v.maxRetentionMs !== null && (v.maxRetentionMs < -9223372036854775808n || v.maxRetentionMs > 9223372036854775807n)) throw new Refusal("number_spelling", 0);
+  if (v.retainedBytes < 0n || v.retainedBytes > 9223372036854775807n) throw new Refusal("bad_value",0);
+  if (v.maxUse !== undefined && v.maxUse !== null) {
+  if (v.maxUse < 0n || v.maxUse > 9223372036854775807n) throw new Refusal("bad_value",0);
+  }
+  if (v.maxRetentionMs !== undefined && v.maxRetentionMs !== null) {
+  if (v.maxRetentionMs < 0n || v.maxRetentionMs > 9223372036854775807n) throw new Refusal("bad_value",0);
+  }
+  out.byte(0x7b);
+  out.byte(0x0a);
+  pad(out, depth + 1);
+  esc(out, "retained_bytes");
+  out.ascii(": ");
+  num(out, v.retainedBytes);
+  if (v.oldest !== "") {
+    out.byte(0x2c);
+    out.byte(0x0a);
+    pad(out, depth + 1);
+    esc(out, "oldest");
+    out.ascii(": ");
+    esc(out, writeTimestamp(v.oldest));
+  }
+  if (v.maxUse !== undefined) {
+    out.byte(0x2c);
+    out.byte(0x0a);
+    pad(out, depth + 1);
+    esc(out, "max_use");
+    out.ascii(": ");
+    num(out, v.maxUse);
+  }
+  if (v.maxRetentionMs !== undefined) {
+    out.byte(0x2c);
+    out.byte(0x0a);
+    pad(out, depth + 1);
+    esc(out, "max_retention_ms");
+    out.ascii(": ");
+    num(out, v.maxRetentionMs);
+  }
+  out.byte(0x0a);
+  pad(out, depth);
+  out.byte(0x7d);
+}
+
+function writeHistoryUsageResult(out, v, depth) {
+    if (typeof v.outcome !== "string") throw new Refusal("wrong_type",0);
+    if (v.outcome !== "available" && v.outcome !== "unavailable" && v.outcome !== "corrupt" && v.outcome !== "forbidden" && v.outcome !== "invalid") { throw new Refusal("bad_enum",0); }
+  out.byte(0x7b);
+  out.byte(0x0a);
+  pad(out, depth + 1);
+  esc(out, "outcome");
+  out.ascii(": ");
+  esc(out, v.outcome);
+  if (v.usage !== undefined && v.usage !== null) {
+    out.byte(0x2c);
+    out.byte(0x0a);
+    pad(out, depth + 1);
+    esc(out, "usage");
+    out.ascii(": ");
+    writeHistoryUsage(out, v.usage, depth + 1);
+  }
   out.byte(0x0a);
   pad(out, depth);
   out.byte(0x7d);
@@ -653,6 +710,11 @@ function writeOASinkWriteArguments(out, v, depth) {
   out.byte(0x7d);
 }
 
+function writeOAHistoryReaderUsageArguments(out, v, depth) {
+  out.byte(0x7b);
+  out.byte(0x7d);
+}
+
 function writeOAHistoryReaderReadArguments(out, v, depth) {
   out.byte(0x7b);
   out.byte(0x0a);
@@ -714,6 +776,37 @@ function writeOAApplicationHistoryReaderReadArguments(out, v, depth) {
   esc(out, "target");
   out.ascii(": ");
   writeApplicationLogTarget(out, v.target, depth + 1);
+  out.byte(0x2c);
+  out.byte(0x0a);
+  pad(out, depth + 1);
+  esc(out, "cursor");
+  out.ascii(": ");
+  esc(out, v.cursor);
+  out.byte(0x2c);
+  out.byte(0x0a);
+  pad(out, depth + 1);
+  esc(out, "max_records");
+  out.ascii(": ");
+  num(out, v.maxRecords);
+  out.byte(0x2c);
+  out.byte(0x0a);
+  pad(out, depth + 1);
+  esc(out, "max_bytes");
+  out.ascii(": ");
+  num(out, v.maxBytes);
+  out.byte(0x0a);
+  pad(out, depth);
+  out.byte(0x7d);
+}
+
+function writeOAApplicationHistoryReaderReadAboutCallerArguments(out, v, depth) {
+  { const n = ENC.encode(v.cursor).length; if (n > 131072) throw new Refusal("bad_value",0); }
+  out.byte(0x7b);
+  out.byte(0x0a);
+  pad(out, depth + 1);
+  esc(out, "since");
+  out.ascii(": ");
+  esc(out, writeTimestamp(v.since));
   out.byte(0x2c);
   out.byte(0x0a);
   pad(out, depth + 1);
@@ -904,6 +997,18 @@ function writeOAServiceError(out, v, depth) {
   out.byte(0x7d);
 }
 
+function writeOAHistoryReaderUsageResult(out, v, depth) {
+  out.byte(0x7b);
+  out.byte(0x0a);
+  pad(out, depth + 1);
+  esc(out, "value");
+  out.ascii(": ");
+  writeHistoryUsageResult(out, v.value, depth + 1);
+  out.byte(0x0a);
+  pad(out, depth);
+  out.byte(0x7d);
+}
+
 function writeOAHistoryReaderReadResult(out, v, depth) {
   out.byte(0x7b);
   out.byte(0x0a);
@@ -929,6 +1034,18 @@ function writeOAHistoryObserverObserveResult(out, v, depth) {
 }
 
 function writeOAApplicationHistoryReaderReadResult(out, v, depth) {
+  out.byte(0x7b);
+  out.byte(0x0a);
+  pad(out, depth + 1);
+  esc(out, "value");
+  out.ascii(": ");
+  writeApplicationLogPage(out, v.value, depth + 1);
+  out.byte(0x0a);
+  pad(out, depth);
+  out.byte(0x7d);
+}
+
+function writeOAApplicationHistoryReaderReadAboutCallerResult(out, v, depth) {
   out.byte(0x7b);
   out.byte(0x0a);
   pad(out, depth + 1);
@@ -1400,6 +1517,7 @@ export function newAttestation() {
   return { by: "", verified: false, hop: 0n, program: "", host: "", user: "", exe: "", uid: 0n, gid: 0n, pid: 0n, key: "", mac: "" };
 }
 
+// [Record](https://openabstractions.github.io/reference.html#concept-log.record)
 export function newRecord() {
   return { schema: 0n, time: "", level: 0n, msg: "", identity: [], job: "", attrs: {} };
 }
@@ -1411,6 +1529,21 @@ export function newRecord() {
 // silently restarts a stream.
 export function newPage() {
   return { outcome: "", records: [], next: "", atEnd: false };
+}
+
+// A snapshot of retained history bytes and effective provider budgets. max_use
+// is bytes; max_retention_ms is milliseconds. An absent limit is known
+// unlimited; a present value of zero is zero. Unknown budgets make Usage
+// unavailable. Absent oldest means empty history. oldest follows append order,
+// not timestamp sorting.
+export function newHistoryUsage() {
+  return { retainedBytes: 0n, oldest: "", maxUse: undefined, maxRetentionMs: undefined };
+}
+
+// usage is present exactly for available; unavailable and corrupt expose no
+// usage snapshot.
+export function newHistoryUsageResult() {
+  return { outcome: "", usage: null };
 }
 
 // One requires an Identity program; all omits program. Account is established
@@ -1474,6 +1607,10 @@ function newOASinkWriteArguments() {
   return { record: newRecord() };
 }
 
+function newOAHistoryReaderUsageArguments() {
+  return { };
+}
+
 function newOAHistoryReaderReadArguments() {
   return { cursor: "", maxRecords: 0n, maxBytes: 0n };
 }
@@ -1484,6 +1621,10 @@ function newOAHistoryObserverObserveArguments() {
 
 function newOAApplicationHistoryReaderReadArguments() {
   return { target: newApplicationLogTarget(), cursor: "", maxRecords: 0n, maxBytes: 0n };
+}
+
+function newOAApplicationHistoryReaderReadAboutCallerArguments() {
+  return { since: "", cursor: "", maxRecords: 0n, maxBytes: 0n };
 }
 
 function newOAApplicationHistoryObserverObserveArguments() {
@@ -1514,6 +1655,10 @@ function newOAServiceError() {
   return { code: "", message: "" };
 }
 
+function newOAHistoryReaderUsageResult() {
+  return { value: newHistoryUsageResult() };
+}
+
 function newOAHistoryReaderReadResult() {
   return { value: newPage() };
 }
@@ -1523,6 +1668,10 @@ function newOAHistoryObserverObserveResult() {
 }
 
 function newOAApplicationHistoryReaderReadResult() {
+  return { value: newApplicationLogPage() };
+}
+
+function newOAApplicationHistoryReaderReadAboutCallerResult() {
   return { value: newApplicationLogPage() };
 }
 
@@ -1729,6 +1878,100 @@ function readPage(r) {
   return v;
 }
 
+function readHistoryUsage(r) {
+  if (r.at() !== 0x7b) throw r.refuse("wrong_type");
+  r.enter();
+  r.pos++;
+  const v = newHistoryUsage();
+  let seen = 0;
+  r.ws();
+  if (r.at() !== 0x7d) {
+    for (;;) {
+      r.ws();
+      if (r.at() !== 0x22) throw r.refuse("malformed");
+      const key = r.string();
+      r.ws();
+      if (r.at() !== 0x3a) throw r.refuse("malformed");
+      r.pos++;
+      r.ws();
+      if (key === "retained_bytes") {
+        if (seen & 1) throw r.refuse("duplicate_field");
+        seen |= 1;
+        v.retainedBytes = r.integer(-9223372036854775808n, 9223372036854775807n);
+      } else if (key === "oldest") {
+        if (seen & 2) throw r.refuse("duplicate_field");
+        seen |= 2;
+        v.oldest = readTimestamp(r);
+      } else if (key === "max_use") {
+        if (seen & 4) throw r.refuse("duplicate_field");
+        seen |= 4;
+        v.maxUse = r.integer(-9223372036854775808n, 9223372036854775807n);
+      } else if (key === "max_retention_ms") {
+        if (seen & 8) throw r.refuse("duplicate_field");
+        seen |= 8;
+        v.maxRetentionMs = r.integer(-9223372036854775808n, 9223372036854775807n);
+      } else {
+        throw r.refuse("unknown_field");
+      }
+      r.ws();
+      if (r.at() !== 0x2c) break;
+      r.pos++;
+    }
+  }
+  if (r.at() !== 0x7d) throw r.refuse("malformed");
+  r.pos++;
+  r.depth--;
+  if (((seen & 1) >>> 0) !== 1) throw r.refuse("missing_field");
+  if (v.retainedBytes < 0n || v.retainedBytes > 9223372036854775807n) throw r.refuse("bad_value");
+  if (v.maxUse !== undefined && v.maxUse !== null) {
+  if (v.maxUse < 0n || v.maxUse > 9223372036854775807n) throw r.refuse("bad_value");
+  }
+  if (v.maxRetentionMs !== undefined && v.maxRetentionMs !== null) {
+  if (v.maxRetentionMs < 0n || v.maxRetentionMs > 9223372036854775807n) throw r.refuse("bad_value");
+  }
+  return v;
+}
+
+function readHistoryUsageResult(r) {
+  if (r.at() !== 0x7b) throw r.refuse("wrong_type");
+  r.enter();
+  r.pos++;
+  const v = newHistoryUsageResult();
+  let seen = 0;
+  r.ws();
+  if (r.at() !== 0x7d) {
+    for (;;) {
+      r.ws();
+      if (r.at() !== 0x22) throw r.refuse("malformed");
+      const key = r.string();
+      r.ws();
+      if (r.at() !== 0x3a) throw r.refuse("malformed");
+      r.pos++;
+      r.ws();
+      if (key === "outcome") {
+        if (seen & 1) throw r.refuse("duplicate_field");
+        seen |= 1;
+        v.outcome = r.string();
+      } else if (key === "usage") {
+        if (seen & 2) throw r.refuse("duplicate_field");
+        seen |= 2;
+        v.usage = readHistoryUsage(r);
+      } else {
+        r.skipValue();
+      }
+      r.ws();
+      if (r.at() !== 0x2c) break;
+      r.pos++;
+    }
+  }
+  if (r.at() !== 0x7d) throw r.refuse("malformed");
+  r.pos++;
+  r.depth--;
+  if (((seen & 1) >>> 0) !== 1) throw r.refuse("missing_field");
+    if (v.outcome !== "available" && v.outcome !== "unavailable" && v.outcome !== "corrupt" && v.outcome !== "forbidden" && v.outcome !== "invalid") { throw r.refuse("bad_enum"); }
+  return v;
+}
+
 function readApplicationLogTarget(r) {
   if (r.at() !== 0x7b) throw r.refuse("wrong_type");
   r.enter();
@@ -1897,6 +2140,9 @@ function readSourceDescriptor(r) {
   r.depth--;
   if (((seen & 7) >>> 0) !== 7) throw r.refuse("missing_field");
     if (v.availability !== "available" && v.availability !== "permission_denied" && v.availability !== "unavailable" && v.availability !== "unsupported") { throw r.refuse("bad_enum"); }
+    for (const item of v.limitations) {
+        if (typeof item !== "string") throw new Refusal("wrong_type",0);
+    }
   return v;
 }
 
@@ -2124,6 +2370,37 @@ function readOASinkWriteArguments(r) {
   return v;
 }
 
+function readOAHistoryReaderUsageArguments(r) {
+  if (r.at() !== 0x7b) throw r.refuse("wrong_type");
+  r.enter();
+  r.pos++;
+  const v = newOAHistoryReaderUsageArguments();
+  let seen = 0;
+  r.ws();
+  if (r.at() !== 0x7d) {
+    for (;;) {
+      r.ws();
+      if (r.at() !== 0x22) throw r.refuse("malformed");
+      const key = r.string();
+      r.ws();
+      if (r.at() !== 0x3a) throw r.refuse("malformed");
+      r.pos++;
+      r.ws();
+      if (false) {
+      } else {
+        throw r.refuse("unknown_field");
+      }
+      r.ws();
+      if (r.at() !== 0x2c) break;
+      r.pos++;
+    }
+  }
+  if (r.at() !== 0x7d) throw r.refuse("malformed");
+  r.pos++;
+  r.depth--;
+  return v;
+}
+
 function readOAHistoryReaderReadArguments(r) {
   if (r.at() !== 0x7b) throw r.refuse("wrong_type");
   r.enter();
@@ -2258,6 +2535,54 @@ function readOAApplicationHistoryReaderReadArguments(r) {
   r.pos++;
   r.depth--;
   if (((seen & 15) >>> 0) !== 15) throw r.refuse("missing_field");
+  return v;
+}
+
+function readOAApplicationHistoryReaderReadAboutCallerArguments(r) {
+  if (r.at() !== 0x7b) throw r.refuse("wrong_type");
+  r.enter();
+  r.pos++;
+  const v = newOAApplicationHistoryReaderReadAboutCallerArguments();
+  let seen = 0;
+  r.ws();
+  if (r.at() !== 0x7d) {
+    for (;;) {
+      r.ws();
+      if (r.at() !== 0x22) throw r.refuse("malformed");
+      const key = r.string();
+      r.ws();
+      if (r.at() !== 0x3a) throw r.refuse("malformed");
+      r.pos++;
+      r.ws();
+      if (key === "since") {
+        if (seen & 1) throw r.refuse("duplicate_field");
+        seen |= 1;
+        v.since = readTimestamp(r);
+      } else if (key === "cursor") {
+        if (seen & 2) throw r.refuse("duplicate_field");
+        seen |= 2;
+        v.cursor = r.string();
+      } else if (key === "max_records") {
+        if (seen & 4) throw r.refuse("duplicate_field");
+        seen |= 4;
+        v.maxRecords = r.integer(-9223372036854775808n, 9223372036854775807n);
+      } else if (key === "max_bytes") {
+        if (seen & 8) throw r.refuse("duplicate_field");
+        seen |= 8;
+        v.maxBytes = r.integer(-9223372036854775808n, 9223372036854775807n);
+      } else {
+        throw r.refuse("unknown_field");
+      }
+      r.ws();
+      if (r.at() !== 0x2c) break;
+      r.pos++;
+    }
+  }
+  if (r.at() !== 0x7d) throw r.refuse("malformed");
+  r.pos++;
+  r.depth--;
+  if (((seen & 15) >>> 0) !== 15) throw r.refuse("missing_field");
+  { const n = ENC.encode(v.cursor).length; if (n > 131072) throw r.refuse("bad_value"); }
   return v;
 }
 
@@ -2562,6 +2887,41 @@ function readOAServiceError(r) {
   return v;
 }
 
+function readOAHistoryReaderUsageResult(r) {
+  if (r.at() !== 0x7b) throw r.refuse("wrong_type");
+  r.enter();
+  r.pos++;
+  const v = newOAHistoryReaderUsageResult();
+  let seen = 0;
+  r.ws();
+  if (r.at() !== 0x7d) {
+    for (;;) {
+      r.ws();
+      if (r.at() !== 0x22) throw r.refuse("malformed");
+      const key = r.string();
+      r.ws();
+      if (r.at() !== 0x3a) throw r.refuse("malformed");
+      r.pos++;
+      r.ws();
+      if (key === "value") {
+        if (seen & 1) throw r.refuse("duplicate_field");
+        seen |= 1;
+        v.value = readHistoryUsageResult(r);
+      } else {
+        throw r.refuse("unknown_field");
+      }
+      r.ws();
+      if (r.at() !== 0x2c) break;
+      r.pos++;
+    }
+  }
+  if (r.at() !== 0x7d) throw r.refuse("malformed");
+  r.pos++;
+  r.depth--;
+  if (((seen & 1) >>> 0) !== 1) throw r.refuse("missing_field");
+  return v;
+}
+
 function readOAHistoryReaderReadResult(r) {
   if (r.at() !== 0x7b) throw r.refuse("wrong_type");
   r.enter();
@@ -2637,6 +2997,41 @@ function readOAApplicationHistoryReaderReadResult(r) {
   r.enter();
   r.pos++;
   const v = newOAApplicationHistoryReaderReadResult();
+  let seen = 0;
+  r.ws();
+  if (r.at() !== 0x7d) {
+    for (;;) {
+      r.ws();
+      if (r.at() !== 0x22) throw r.refuse("malformed");
+      const key = r.string();
+      r.ws();
+      if (r.at() !== 0x3a) throw r.refuse("malformed");
+      r.pos++;
+      r.ws();
+      if (key === "value") {
+        if (seen & 1) throw r.refuse("duplicate_field");
+        seen |= 1;
+        v.value = readApplicationLogPage(r);
+      } else {
+        throw r.refuse("unknown_field");
+      }
+      r.ws();
+      if (r.at() !== 0x2c) break;
+      r.pos++;
+    }
+  }
+  if (r.at() !== 0x7d) throw r.refuse("malformed");
+  r.pos++;
+  r.depth--;
+  if (((seen & 1) >>> 0) !== 1) throw r.refuse("missing_field");
+  return v;
+}
+
+function readOAApplicationHistoryReaderReadAboutCallerResult(r) {
+  if (r.at() !== 0x7b) throw r.refuse("wrong_type");
+  r.enter();
+  r.pos++;
+  const v = newOAApplicationHistoryReaderReadAboutCallerResult();
   let seen = 0;
   r.ws();
   if (r.at() !== 0x7d) {
@@ -2816,8 +3211,46 @@ export function decode(data) {
   return v;
 }
 
+const JSON_RECORDS = Object.freeze({
+  Attestation: [writeAttestation, readAttestation],
+  Record: [writeRecord, readRecord],
+  Page: [writePage, readPage],
+  HistoryUsage: [writeHistoryUsage, readHistoryUsage],
+  HistoryUsageResult: [writeHistoryUsageResult, readHistoryUsageResult],
+  ApplicationLogTarget: [writeApplicationLogTarget, readApplicationLogTarget],
+  ApplicationLogResource: [writeApplicationLogResource, readApplicationLogResource],
+  ApplicationLogPage: [writeApplicationLogPage, readApplicationLogPage],
+  SourceDescriptor: [writeSourceDescriptor, readSourceDescriptor],
+  SourceCatalog: [writeSourceCatalog, readSourceCatalog],
+  ProducerClaim: [writeProducerClaim, readProducerClaim],
+  SourceRecord: [writeSourceRecord, readSourceRecord],
+  SourcePage: [writeSourcePage, readSourcePage],
+});
+
+// toJson writes one record, named by kind, as JSON laid out as this module's
+// documents are and without the document terminator.
+export function toJson(kind, value) {
+  const codec = Object.hasOwn(JSON_RECORDS, kind) ? JSON_RECORDS[kind] : undefined;
+  if (codec === undefined) throw new TypeError("toJson takes a record name of this module, not " + String(kind));
+  const out = new Out();
+  codec[0](out, value, 0);
+  return out.bytes();
+}
+
+// fromJson reads one record, named by kind, from data; a refused input throws Refusal.
+export function fromJson(kind, data) {
+  const codec = Object.hasOwn(JSON_RECORDS, kind) ? JSON_RECORDS[kind] : undefined;
+  if (codec === undefined) throw new TypeError("fromJson takes a record name of this module, not " + String(kind));
+  const r = new Reader(data);
+  r.ws();
+  const v = codec[1](r);
+  r.ws();
+  if (r.pos < r.buf.length) throw r.refuse("trailing_bytes");
+  return v;
+}
+
 // refusals is in the order two of them are chosen between.
-const refusals = ["malformed", "bad_string", "number_spelling", "wrong_type", "bad_timestamp", "depth_exceeded", "duplicate_field", "unknown_field", "missing_field", "bad_schema", "bad_enum", "trailing_bytes"];
+const refusals = ["malformed", "bad_string", "number_spelling", "wrong_type", "bad_timestamp", "depth_exceeded", "duplicate_field", "unknown_field", "missing_field", "bad_schema", "bad_enum", "bad_value", "trailing_bytes"];
 
 function refusalRank(word) {
   return refusals.indexOf(word);
@@ -2868,7 +3301,7 @@ function _serviceCheck(kind, value, depth = 0) {
     if (valid) for (const [name,type,omit] of fields) {
       if (!Object.hasOwn(value,name)) throw new Refusal("missing_field",0);
       const item = value[name];
-      if (omit === "absent" && item === null) continue;
+      if (omit === "absent" && (["i32","i64","bool"].includes(type) ? item === undefined : item === null)) continue;
       _serviceCheck(type,item,depth+1);
     }
   }
@@ -2879,6 +3312,8 @@ const _serviceRecords = Object.create(null);
 _serviceRecords["Attestation"] = [["by","string","never"],["verified","bool","never"],["hop","i64","never"],["program","string","zero"],["host","string","zero"],["user","string","zero"],["exe","string","zero"],["uid","i64","never"],["gid","i64","never"],["pid","i64","never"],["key","string","zero"],["mac","string","zero"],];
 _serviceRecords["Record"] = [["schema","i64","never"],["time","string","never"],["level","i64","never"],["msg","string","never"],["identity","list<Attestation>","zero"],["job","string","zero"],["attrs","map<string,string>","zero"],];
 _serviceRecords["Page"] = [["outcome","string","never"],["records","list<Record>","never"],["next","string","never"],["atEnd","bool","never"],];
+_serviceRecords["HistoryUsage"] = [["retainedBytes","i64","never"],["oldest","string","absent"],["maxUse","i64","absent"],["maxRetentionMs","i64","absent"],];
+_serviceRecords["HistoryUsageResult"] = [["outcome","string","never"],["usage","HistoryUsage","absent"],];
 _serviceRecords["ApplicationLogTarget"] = [["selection","string","never"],["program","string","absent"],];
 _serviceRecords["ApplicationLogResource"] = [["program","string","never"],["capturedFileKey","string","absent"],];
 _serviceRecords["ApplicationLogPage"] = [["outcome","string","never"],["records","list<Record>","never"],["next","string","never"],["atEnd","bool","never"],];
@@ -2888,9 +3323,11 @@ _serviceRecords["ProducerClaim"] = [["provider","string","zero"],["program","str
 _serviceRecords["SourceRecord"] = [["sourceId","string","never"],["record","Record","never"],["producer","ProducerClaim","absent"],];
 _serviceRecords["SourcePage"] = [["outcome","string","never"],["records","list<SourceRecord>","never"],["next","string","never"],["atEnd","bool","never"],];
 _serviceRecords["OASinkWriteArguments"] = [["record","Record","never"],];
+_serviceRecords["OAHistoryReaderUsageArguments"] = [];
 _serviceRecords["OAHistoryReaderReadArguments"] = [["cursor","string","never"],["maxRecords","i64","never"],["maxBytes","i64","never"],];
 _serviceRecords["OAHistoryObserverObserveArguments"] = [["cursor","string","never"],["maxRecords","i64","never"],["maxBytes","i64","never"],["waitMs","i64","never"],];
 _serviceRecords["OAApplicationHistoryReaderReadArguments"] = [["target","ApplicationLogTarget","never"],["cursor","string","never"],["maxRecords","i64","never"],["maxBytes","i64","never"],];
+_serviceRecords["OAApplicationHistoryReaderReadAboutCallerArguments"] = [["since","string","never"],["cursor","string","never"],["maxRecords","i64","never"],["maxBytes","i64","never"],];
 _serviceRecords["OAApplicationHistoryObserverObserveArguments"] = [["target","ApplicationLogTarget","never"],["cursor","string","never"],["maxRecords","i64","never"],["maxBytes","i64","never"],["waitMs","i64","never"],];
 _serviceRecords["OASourceReaderSourcesArguments"] = [];
 _serviceRecords["OASourceReaderReadArguments"] = [["sourceId","string","never"],["cursor","string","never"],["maxRecords","i64","never"],["maxBytes","i64","never"],];
@@ -2898,9 +3335,11 @@ _serviceRecords["OASourceReaderStartAtEndArguments"] = [["sourceId","string","ne
 _serviceRecords["OAServiceFrame"] = [["version","i32","never"],["service","string","never"],["method","string","never"],["arguments","json","never"],];
 _serviceRecords["OAServiceReply"] = [["version","i32","never"],["service","string","never"],["method","string","never"],["ok","bool","never"],["payload","json","never"],];
 _serviceRecords["OAServiceError"] = [["code","string","never"],["message","string","never"],];
+_serviceRecords["OAHistoryReaderUsageResult"] = [["value","HistoryUsageResult","never"],];
 _serviceRecords["OAHistoryReaderReadResult"] = [["value","Page","never"],];
 _serviceRecords["OAHistoryObserverObserveResult"] = [["value","Page","never"],];
 _serviceRecords["OAApplicationHistoryReaderReadResult"] = [["value","ApplicationLogPage","never"],];
+_serviceRecords["OAApplicationHistoryReaderReadAboutCallerResult"] = [["value","ApplicationLogPage","never"],];
 _serviceRecords["OAApplicationHistoryObserverObserveResult"] = [["value","ApplicationLogPage","never"],];
 _serviceRecords["OASourceReaderSourcesResult"] = [["value","SourceCatalog","never"],];
 _serviceRecords["OASourceReaderReadResult"] = [["value","SourcePage","never"],];
@@ -2942,6 +3381,18 @@ export const SinkService = Object.freeze({wireName:"abstraction.logging/sink@1",
 
 export class HistoryReaderClient {
   constructor(transport) { this._transport = transport; }
+
+  async usage() {
+    const _args = newOAHistoryReaderUsageArguments();
+    _serviceCheck("OAHistoryReaderUsageArguments", _args);
+    const _payload = _serviceEncode(writeOAHistoryReaderUsageArguments, _args, 1);
+    _serviceDecode(readOAHistoryReaderUsageArguments, _payload, 1);
+    const _request = _serviceRequest("abstraction.logging/reader@1", "Usage", _payload);
+    const _reply = _serviceResponse(await this._transport.exchangeFrame(_request), "abstraction.logging/reader@1", "Usage");
+    const _result = _serviceDecode(readOAHistoryReaderUsageResult, _reply, 1);
+    if ((_result.value.outcome === "available") !== (_result.value.usage !== undefined && _result.value.usage !== null)) throw new ServiceError("invalid_result", "");
+    return _result.value;
+  }
 
   async read(cursor, maxRecords, maxBytes) {
     const _args = newOAHistoryReaderReadArguments();
@@ -2994,6 +3445,21 @@ export class ApplicationHistoryReaderClient {
     const _request = _serviceRequest("abstraction.logging/reader@2", "Read", _payload);
     const _reply = _serviceResponse(await this._transport.exchangeFrame(_request), "abstraction.logging/reader@2", "Read");
     const _result = _serviceDecode(readOAApplicationHistoryReaderReadResult, _reply, 1);
+    return _result.value;
+  }
+
+  async readAboutCaller(since, cursor, maxRecords, maxBytes) {
+    const _args = newOAApplicationHistoryReaderReadAboutCallerArguments();
+    _args.since = since;
+    _args.cursor = cursor;
+    _args.maxRecords = maxRecords;
+    _args.maxBytes = maxBytes;
+    _serviceCheck("OAApplicationHistoryReaderReadAboutCallerArguments", _args);
+    const _payload = _serviceEncode(writeOAApplicationHistoryReaderReadAboutCallerArguments, _args, 1);
+    _serviceDecode(readOAApplicationHistoryReaderReadAboutCallerArguments, _payload, 1);
+    const _request = _serviceRequest("abstraction.logging/reader@2", "ReadAboutCaller", _payload);
+    const _reply = _serviceResponse(await this._transport.exchangeFrame(_request), "abstraction.logging/reader@2", "ReadAboutCaller");
+    const _result = _serviceDecode(readOAApplicationHistoryReaderReadAboutCallerResult, _reply, 1);
     return _result.value;
   }
 }
@@ -3067,6 +3533,8 @@ const _namedRecords = Object.create(null);
 _namedRecords["Attestation"] = [["by","string","never"],["verified","bool","never"],["hop","i64","never"],["program","string","zero"],["host","string","zero"],["user","string","zero"],["exe","string","zero"],["uid","i64","never"],["gid","i64","never"],["pid","i64","never"],["key","string","zero"],["mac","string","zero"],];
 _namedRecords["Record"] = [["schema","i64","never"],["time","string","never"],["level","i64","never"],["msg","string","never"],["identity","list<Attestation>","zero"],["job","string","zero"],["attrs","map<string,string>","zero"],];
 _namedRecords["Page"] = [["outcome","string","never"],["records","list<Record>","never"],["next","string","never"],["atEnd","bool","never"],];
+_namedRecords["HistoryUsage"] = [["retainedBytes","i64","never"],["oldest","string","absent"],["maxUse","i64","absent"],["maxRetentionMs","i64","absent"],];
+_namedRecords["HistoryUsageResult"] = [["outcome","string","never"],["usage","HistoryUsage","absent"],];
 _namedRecords["ApplicationLogTarget"] = [["selection","string","never"],["program","string","absent"],];
 _namedRecords["ApplicationLogResource"] = [["program","string","never"],["capturedFileKey","string","absent"],];
 _namedRecords["ApplicationLogPage"] = [["outcome","string","never"],["records","list<Record>","never"],["next","string","never"],["atEnd","bool","never"],];
@@ -3104,7 +3572,7 @@ function _namedCheck(kind, value, depth = 0, limit = DEPTH_LIMIT) {
     if (valid) for (const [name,type,omit] of fields) {
       if (!Object.hasOwn(value,name)) throw new Refusal("missing_field",0);
       const item = value[name];
-      if (omit === "absent" && item === null) continue;
+      if (omit === "absent" && (["i32","i64","bool"].includes(type) ? item === undefined : item === null)) continue;
       _namedCheck(type,item,depth+1,limit);
     }
   }
@@ -3121,6 +3589,14 @@ export function checkRecord(v, depth = 0, limit = DEPTH_LIMIT) {
 
 export function checkPage(v, depth = 0, limit = DEPTH_LIMIT) {
   _namedCheck("Page", v, depth, Math.min(limit, DEPTH_LIMIT));
+}
+
+export function checkHistoryUsage(v, depth = 0, limit = DEPTH_LIMIT) {
+  _namedCheck("HistoryUsage", v, depth, Math.min(limit, DEPTH_LIMIT));
+}
+
+export function checkHistoryUsageResult(v, depth = 0, limit = DEPTH_LIMIT) {
+  _namedCheck("HistoryUsageResult", v, depth, Math.min(limit, DEPTH_LIMIT));
 }
 
 export function checkApplicationLogTarget(v, depth = 0, limit = DEPTH_LIMIT) {
@@ -3259,6 +3735,80 @@ export function encodePage(v) {
 
 export function decodePage(data) {
   const [v, n] = decodePageAt(data, 0, DEPTH_LIMIT);
+  const r = new Reader(data);
+  r.pos = n;
+  r.ws();
+  if (r.pos !== r.buf.length) throw r.refuse("trailing_bytes");
+  return v;
+}
+
+export function decodeHistoryUsageAt(data, depth, limit) {
+  const r = new Reader(data);
+  if (depth < 0 || limit < 1) throw r.refuse("depth_exceeded");
+  r.depth = depth;
+  r.limit = Math.min(limit, DEPTH_LIMIT);
+  r.ws();
+  const v = readHistoryUsage(r);
+  return [v, r.pos];
+}
+
+export function encodeHistoryUsageAt(v, depth) {
+  if (depth < 0 || depth >= DEPTH_LIMIT) throw new Refusal("depth_exceeded", 0);
+  checkHistoryUsage(v, depth, DEPTH_LIMIT);
+  const out = new Out();
+  writeHistoryUsage(out, v, depth);
+  const bytes = out.bytes();
+  decodeHistoryUsageAt(bytes, depth, DEPTH_LIMIT);
+  return bytes;
+}
+
+export function encodeHistoryUsage(v) {
+  const bytes = encodeHistoryUsageAt(v, 0);
+  const out = new Uint8Array(bytes.length + 1);
+  out.set(bytes);
+  out[bytes.length] = 0x0a;
+  return out;
+}
+
+export function decodeHistoryUsage(data) {
+  const [v, n] = decodeHistoryUsageAt(data, 0, DEPTH_LIMIT);
+  const r = new Reader(data);
+  r.pos = n;
+  r.ws();
+  if (r.pos !== r.buf.length) throw r.refuse("trailing_bytes");
+  return v;
+}
+
+export function decodeHistoryUsageResultAt(data, depth, limit) {
+  const r = new Reader(data);
+  if (depth < 0 || limit < 1) throw r.refuse("depth_exceeded");
+  r.depth = depth;
+  r.limit = Math.min(limit, DEPTH_LIMIT);
+  r.ws();
+  const v = readHistoryUsageResult(r);
+  return [v, r.pos];
+}
+
+export function encodeHistoryUsageResultAt(v, depth) {
+  if (depth < 0 || depth >= DEPTH_LIMIT) throw new Refusal("depth_exceeded", 0);
+  checkHistoryUsageResult(v, depth, DEPTH_LIMIT);
+  const out = new Out();
+  writeHistoryUsageResult(out, v, depth);
+  const bytes = out.bytes();
+  decodeHistoryUsageResultAt(bytes, depth, DEPTH_LIMIT);
+  return bytes;
+}
+
+export function encodeHistoryUsageResult(v) {
+  const bytes = encodeHistoryUsageResultAt(v, 0);
+  const out = new Uint8Array(bytes.length + 1);
+  out.set(bytes);
+  out[bytes.length] = 0x0a;
+  return out;
+}
+
+export function decodeHistoryUsageResult(data) {
+  const [v, n] = decodeHistoryUsageResultAt(data, 0, DEPTH_LIMIT);
   const r = new Reader(data);
   r.pos = n;
   r.ws();

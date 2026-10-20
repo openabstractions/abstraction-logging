@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -137,6 +136,33 @@ type outageCounts struct {
 	Failing   bool   `json:"failing"`
 }
 
+type outageDefaults struct {
+	Capacity         int    `json:"capacity"`
+	InitialBackoffMS int64  `json:"initial_backoff_ms"`
+	MaxBackoffMS     int64  `json:"max_backoff_ms"`
+	WriteTimeoutMS   int64  `json:"write_timeout_ms"`
+	JitterPercent    int    `json:"jitter_percent"`
+	GapMessage       string `json:"gap_message"`
+}
+
+func checkOutageDefaults(want outageDefaults, options AsyncOptions) error {
+	sink := NewAsyncSink(&outageSink{}, options)
+	got := outageDefaults{sink.opts.Capacity, sink.opts.InitialBackoff.Milliseconds(), sink.opts.MaxBackoff.Milliseconds(), sink.opts.WriteTimeout.Milliseconds(), int(BackoffJitter * 100), GapMessage}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := sink.Close(ctx); err != nil {
+		return err
+	}
+	if got != want {
+		return fmt.Errorf("writer defaults %+v, want %+v", got, want)
+	}
+	return nil
+}
+
+// Keep the existing public constants usable in their original untyped contexts.
+var _ int64 = DefaultAsyncCapacity
+var _ float32 = BackoffJitter
+
 func countsOf(c AsyncCounts) outageCounts {
 	return outageCounts{c.Accepted, c.Dropped, c.Written, c.Failed, c.Abandoned, c.Queued, c.Failing}
 }
@@ -156,13 +182,14 @@ type outageFixture struct {
 		} `json:"rebind_error"`
 	} `json:"outage"`
 	Steps []struct {
-		Log     []string      `json:"log"`
-		Await   string        `json:"await"`
-		Outage  *bool         `json:"outage"`
-		Hold    string        `json:"hold"`
-		Release bool          `json:"release"`
-		Counts  *outageCounts `json:"counts"`
-		Close   bool          `json:"close"`
+		Defaults *outageDefaults `json:"defaults"`
+		Log      []string        `json:"log"`
+		Await    string          `json:"await"`
+		Outage   *bool           `json:"outage"`
+		Hold     string          `json:"hold"`
+		Release  bool            `json:"release"`
+		Counts   *outageCounts   `json:"counts"`
+		Close    bool            `json:"close"`
 	} `json:"steps"`
 	Expect struct {
 		Counts            outageCounts `json:"counts"`
@@ -186,11 +213,8 @@ type outageFixture struct {
 
 func loadOutageFixture(t *testing.T) outageFixture {
 	t.Helper()
-	path := filepath.Join("..", "..", "..", "conformance", "faults", "sink-outage", "sink-outage.json")
+	path := privateInput(t, "..", "..", "..", "conformance", "faults", "sink-outage", "sink-outage.json")
 	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		t.Skip("conformance/faults/sink-outage is not beside this module")
-	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,6 +264,10 @@ func TestSinkOutageFixture(t *testing.T) {
 			var final AsyncCounts
 			for i, step := range f.Steps {
 				switch {
+				case step.Defaults != nil:
+					if err := checkOutageDefaults(*step.Defaults, AsyncOptions{}); err != nil {
+						t.Fatal(err)
+					}
 				case step.Log != nil:
 					for _, msg := range step.Log {
 						logger.Info(msg)
@@ -357,6 +385,19 @@ func TestSinkOutageFixture(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSinkOutageDefaultsRejectWriterDrift(t *testing.T) {
+	f := loadOutageFixture(t)
+	for _, step := range f.Steps {
+		if step.Defaults != nil {
+			if err := checkOutageDefaults(*step.Defaults, AsyncOptions{Capacity: step.Defaults.Capacity + 1}); err == nil {
+				t.Fatal("writer default drift accepted")
+			}
+			return
+		}
+	}
+	t.Fatal("fixture has no defaults step")
 }
 
 // A 2,000-record burst while the service is down drops exactly the newest

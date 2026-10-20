@@ -5,7 +5,7 @@
 Install the runtime first: https://openabstractions.org/adopt.html
 
 `abstraction-logging-api` compiles the generated `../rs/abstraction/logging/rec.rs`
-source directly. It exports Record/Page types, Sink/HistoryReader traits and
+source directly. It exports [Record](https://openabstractions.github.io/reference.html#concept-log.record)/Page types, [Sink](https://openabstractions.github.io/reference.html#concept-log.sink)/HistoryReader traits and
 clients accepting the generated FrameTransport trait. It includes no transport or
 provider. Keep `rust/` and `rs/` as siblings when using this source package.
 

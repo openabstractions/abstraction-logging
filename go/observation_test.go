@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	wire "github.com/openabstractions/abstraction-logging/go/abstraction/logging"
+	watch "github.com/openabstractions/abstraction-watch/go"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -15,9 +17,7 @@ func waitObservers(t *testing.T, s *FileSink, n int) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		s.mu.Lock()
-		actual := s.historyWaiters
-		s.mu.Unlock()
+		actual := s.historyGate.Waiting()
 		if actual == n {
 			return
 		}
@@ -27,6 +27,49 @@ func waitObservers(t *testing.T, s *FileSink, n int) {
 		runtime.Gosched()
 	}
 }
+
+// WATCH-W4: an authority withdrawn during the wait is refused at the read the
+// next write wakes, with no page, and the waiter's slot is released.
+func TestObserveRecheckedRefusesWithdrawnAuthority(t *testing.T) {
+	s, e := OpenFileSink(filepath.Join(t.TempDir(), "history"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer s.Close()
+	withdrawn := errors.New("withdrawn")
+	var allowed atomic.Bool
+	allowed.Store(true)
+	recheck := func() error {
+		if allowed.Load() {
+			return nil
+		}
+		return withdrawn
+	}
+	type result struct {
+		p wire.Page
+		e error
+	}
+	done := make(chan result, 1)
+	go func() {
+		p, e := s.ObserveRechecked(context.Background(), EndCursor, 1, 65536, 30000, recheck)
+		done <- result{p, e}
+	}()
+	waitObservers(t, s, 1)
+	allowed.Store(false)
+	if e = s.Write(Record{Schema: 1, Time: Timestamp{Time: time.Now().UTC()}, Msg: "hidden"}); e != nil {
+		t.Fatal(e)
+	}
+	select {
+	case r := <-done:
+		if !errors.Is(r.e, withdrawn) || len(r.p.Records) != 0 {
+			t.Fatalf("withdrawn authority returned %+v %v", r.p, r.e)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("write did not wake the waiter")
+	}
+	waitObservers(t, s, 0)
+}
+
 func TestObservationNotifyCapacityCancelAndShutdown(t *testing.T) {
 	s, e := OpenFileSink(filepath.Join(t.TempDir(), "history"))
 	if e != nil {
@@ -35,12 +78,12 @@ func TestObservationNotifyCapacityCancelAndShutdown(t *testing.T) {
 	defer s.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	results := make(chan wire.Page, MaxHistoryWaiters)
-	errs := make(chan error, MaxHistoryWaiters)
-	for i := 0; i < MaxHistoryWaiters; i++ {
+	results := make(chan wire.Page, watch.DefaultWaiters)
+	errs := make(chan error, watch.DefaultWaiters)
+	for i := 0; i < watch.DefaultWaiters; i++ {
 		go func() { p, e := s.ObserveContext(ctx, "", 1, 65536, 30000); results <- p; errs <- e }()
 	}
-	waitObservers(t, s, MaxHistoryWaiters)
+	waitObservers(t, s, watch.DefaultWaiters)
 	p, e := s.ObserveContext(ctx, "", 1, 65536, 30000)
 	if e != nil || p.Outcome != wire.PageOutcomeUnavailable {
 		t.Fatalf("capacity %+v %v", p, e)
@@ -48,7 +91,7 @@ func TestObservationNotifyCapacityCancelAndShutdown(t *testing.T) {
 	if e = s.Write(Record{Schema: 1, Time: Timestamp{Time: time.Now().UTC()}, Msg: "wake"}); e != nil {
 		t.Fatal(e)
 	}
-	for i := 0; i < MaxHistoryWaiters; i++ {
+	for i := 0; i < watch.DefaultWaiters; i++ {
 		select {
 		case p = <-results:
 			if p.Outcome != wire.PageOutcomePage || len(p.Records) != 1 || p.Records[0].Msg != "wake" {
@@ -120,7 +163,7 @@ func TestObservationExpirySlowReaderAndRestartGap(t *testing.T) {
 	}
 }
 
-// The old generation remains signalled even when a write wins before the waiter selects.
+// A write that wins before the waiter selects still wakes it (WATCH-W3).
 func TestObservationCapturedGenerationSurvivesEarlyWrite(t *testing.T) {
 	s, e := OpenFileSink(filepath.Join(t.TempDir(), "history"))
 	if e != nil {
@@ -132,16 +175,8 @@ func TestObservationCapturedGenerationSurvivesEarlyWrite(t *testing.T) {
 	done := make(chan wire.Page, 1)
 	go func() { p, _ := s.ObserveContext(ctx, "", 1, 65536, 30000); done <- p }()
 	waitObservers(t, s, 1)
-	s.mu.Lock()
-	generation := s.historyChanged
-	s.mu.Unlock()
 	if e = s.Write(Record{Schema: 1, Time: Timestamp{Time: time.Now().UTC()}, Msg: "early"}); e != nil {
 		t.Fatal(e)
-	}
-	select {
-	case <-generation:
-	default:
-		t.Fatal("captured generation lost notification")
 	}
 	select {
 	case p := <-done:

@@ -1,4 +1,7 @@
+#include "abstraction/logging/client.hpp"
 #include "abstraction/logging/rec.h"
+#include <type_traits>
+#include <utility>
 #include <iostream>
 #include <stdexcept>
 
@@ -30,5 +33,14 @@ int main() {
     legacy.outcome = PageOutcome::InvalidRequest;
     legacy.next = "supplied";
     require(encode_page(legacy) == "{\n  \"outcome\": \"invalid_request\",\n  \"records\": [],\n  \"next\": \"supplied\",\n  \"at_end\": false\n}\n");
+    static_assert(std::is_same_v<decltype(std::declval<const History&>().usage()), HistoryUsageResult>);
+    HistoryUsageResult usage;
+    usage.outcome = HistoryUsageOutcome::Available;
+    usage.usage = HistoryUsage{42, "2026-09-13T00:00:00Z", 1024, std::nullopt};
+    const auto available = from_json<HistoryUsageResult>(to_json(usage));
+    require(available.outcome == HistoryUsageOutcome::Available && available.usage && available.usage->retained_bytes == 42 && !available.usage->max_retention_ms);
+    usage = HistoryUsageResult{};
+    usage.outcome = HistoryUsageOutcome::Unavailable;
+    require(!from_json<HistoryUsageResult>(to_json(usage)).usage);
     std::cout << "history outcome codec checks PASS\n";
 }

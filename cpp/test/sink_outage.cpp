@@ -22,6 +22,12 @@
 namespace logging = abstraction::logging;
 using namespace std::chrono_literals;
 
+// An adopter fixture may route these same cases through its actual metadata
+// adapter. The default remains the shared handler itself.
+#ifndef OA_LOGGING_OUTAGE_HANDLER
+#define OA_LOGGING_OUTAGE_HANDLER logging::AsyncHandler
+#endif
+
 namespace {
 
 // A JSON value, enough to read the fixture.
@@ -278,7 +284,7 @@ void run_fixture(const Json& fixture, bool reporter) {
     logging::HandlerCounts final;
     std::vector<std::string> lines;
     {
-        logging::AsyncHandler handler(outage->writer(outage), outage->rebinder(outage), async);
+        OA_LOGGING_OUTAGE_HANDLER handler(outage->writer(outage), outage->rebinder(outage), async);
         auto reported = [&]() -> std::size_t {
             if (reporter) return captured->lines().size();
             std::lock_guard<std::mutex> lock(mutex);
@@ -287,7 +293,15 @@ void run_fixture(const Json& fixture, bool reporter) {
         int index = 0;
         for (const Json& step : fixture.at("steps").items) {
             const std::string where = mode + " step " + std::to_string(index++);
-            if (const Json* log = step.find("log")) {
+            if (const Json* defaults = step.find("defaults")) {
+                const logging::AsyncOptions default_options;
+                check(default_options.capacity == static_cast<std::size_t>(defaults->at("capacity").number), where + ": capacity default");
+                check(default_options.initial_backoff.count() == defaults->at("initial_backoff_ms").number, where + ": initial backoff default");
+                check(default_options.max_backoff.count() == defaults->at("max_backoff_ms").number, where + ": max backoff default");
+                check(default_options.write_timeout.count() == defaults->at("write_timeout_ms").number, where + ": write timeout default");
+                check(logging::async_detail::kBackoffJitter * 100 == defaults->at("jitter_percent").number, where + ": jitter default");
+                check(logging::kGapMessage == defaults->at("gap_message").text, where + ": gap message default");
+            } else if (const Json* log = step.find("log")) {
                 for (const Json& message : log->items) handler.log(0, message.text);
             } else if (const Json* down = step.find("outage")) {
                 outage->set(down->boolean);
@@ -488,6 +502,35 @@ void hung_writer() {
     check(c.written == 100 && c.failed == 0 && !c.failing, "hung writer: final counts " + counts_text(c));
 }
 
+void nonpositive_options() {
+    const logging::AsyncOptions defaults;
+    for (const auto invalid : {0ms, -1ms}) {
+        logging::AsyncOptions original;
+        original.capacity = 0;
+        original.initial_backoff = invalid;
+        original.max_backoff = invalid;
+        original.write_timeout = invalid;
+        auto normalized = original;
+        logging::async_detail::normalize_options(normalized);
+        check(normalized.capacity == defaults.capacity, "nonpositive options: capacity");
+        check(normalized.initial_backoff == defaults.initial_backoff, "nonpositive options: initial backoff");
+        check(normalized.max_backoff == defaults.max_backoff, "nonpositive options: maximum backoff");
+        check(normalized.write_timeout == invalid, "nonpositive options: unbounded delivery preserved");
+        logging::AsyncHandler handler([](const logging::Record&) {}, {}, original);
+        handler.log(0, "normalized options");
+        const auto counts = handler.close(1s);
+        check(counts.written == 1 && counts.dropped == 0, "nonpositive options: constructor uses normalization");
+    }
+    logging::AsyncOptions custom;
+    custom.capacity = 3;
+    custom.initial_backoff = 7ms;
+    custom.max_backoff = 11ms;
+    custom.write_timeout = 13ms;
+    logging::async_detail::normalize_options(custom);
+    check(custom.capacity == 3 && custom.initial_backoff == 7ms && custom.max_backoff == 11ms && custom.write_timeout == 13ms,
+          "positive options: explicit values preserved");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -506,6 +549,7 @@ int main(int argc, char** argv) {
     burst_during_an_outage();
     close_at_the_deadline_during_an_outage();
     hung_writer();
+    nonpositive_options();
     if (failures) {
         std::cerr << failures << " failures\n";
         return 1;

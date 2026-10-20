@@ -13,7 +13,7 @@ import time
 import unittest
 from pathlib import Path
 
-from abstraction.logging.handler import ServiceHandler, failure_class
+from abstraction.logging.handler import ServiceHandler, failure_class, BACKOFF_JITTER, GAP_MESSAGE
 
 FIXTURE = Path(__file__).resolve().parents[3] / "conformance" / "faults" / "sink-outage" / "sink-outage.json"
 INSTANT = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")
@@ -101,7 +101,17 @@ class SinkOutageFixtureTests(unittest.TestCase):
             reported = (lambda: len(stderr.getvalue().splitlines())) if reporter else (lambda: len(transitions))
             final = None
             for index, step in enumerate(f["steps"]):
-                if "log" in step:
+                if "defaults" in step:
+                    defaults=ServiceHandler(sink)
+                    try:
+                        self.assertEqual(dict(capacity=defaults._capacity,
+                            initial_backoff_ms=round(defaults._initial_backoff*1000),
+                            max_backoff_ms=round(defaults._max_backoff*1000),
+                            write_timeout_ms=round(defaults._write_timeout*1000),
+                            jitter_percent=round(BACKOFF_JITTER*100),gap_message=GAP_MESSAGE),step["defaults"])
+                    finally:
+                        defaults.close(1.0)
+                elif "log" in step:
                     for message in step["log"]:
                         log.info(message)
                 elif "outage" in step:

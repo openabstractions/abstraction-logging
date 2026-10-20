@@ -44,6 +44,20 @@ func (c *ApplicationReader) ReadContext(ctx context.Context, target ApplicationL
 	return validateApplicationHistoryPage(page, cursor, maxRecords, maxBytes)
 }
 
+// ReadAboutCallerContext reads the records the receiving runtime wrote about
+// this caller's own requests from since onward (LOG-P9). An earlier reader@2
+// service answers unknown_method.
+func (c *ApplicationReader) ReadAboutCallerContext(ctx context.Context, since time.Time, cursor string, maxRecords, maxBytes int64) (ApplicationLogPage, error) {
+	if err := ctx.Err(); err != nil {
+		return ApplicationLogPage{}, err
+	}
+	page, err := wire.NewApplicationHistoryReaderClient(c.transport.WithContext(ctx)).ReadAboutCaller(wire.FormatTimestamp(since), cursor, maxRecords, maxBytes)
+	if err != nil {
+		return ApplicationLogPage{}, err
+	}
+	return validateApplicationHistoryPage(page, cursor, maxRecords, maxBytes)
+}
+
 // ApplicationObserver waits once per bounded physical scan at observer@2.
 type ApplicationObserver struct{ transport listen.FrameClient }
 

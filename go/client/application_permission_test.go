@@ -1,6 +1,8 @@
 package client
 
 import (
+	"github.com/openabstractions/abstraction-logging/go/internal/personfolders"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,3 +25,6 @@ func TestApplicationPermissionTargetLeavesCaptureToOwnerAndBoundsEncoding(t *tes
 		t.Fatal("escaped target exceeded owning canonical bound")
 	}
 }
+
+// TestMain confines per-user folders to the canonical owned test fixture.
+func TestMain(m *testing.M) { os.Exit(personfolders.Main(m)) }

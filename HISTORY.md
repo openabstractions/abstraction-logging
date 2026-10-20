@@ -66,4 +66,26 @@ do not run at all yet. This table carries what was tested where.
 | a lost binding (`LOG-S12`, `LOG-S13`) | the sink-outage fixture against a fake service sink in Go, Python, C++ (MSVC), Rust and JavaScript on Windows, with equal counts and gap records that sum to the dropped count, including a drop while the gap record is delivered; in Go, a drop during the drain carried into a second failure's gap record; in Go, a real resolver and logging service stopped and restarted under a bound handler | a supervised runtime killed under an installed adopter; Linux and macOS |
 | retained history | `go test ./...` in `logging/go` exercises retained records, Unicode, pagination, append-at-end, invalid limits, oversized/corrupt data, reopen gaps and same-account service authorization; `conformance/clients/facade/run.py --run` builds an installed C++ consumer that resolves the history service and checks record content/provenance, continuation, gap and byte-limit refusal through Go services | a second-language driver against `HistoryReader`/`HistoryObserver`'s own scenarios |
 
+## 0.8.0 contract truth pass (W0-04), 2026-10-21
+
+Each changed or reviewed statement with its class: an outdated rule is text the code has passed, a code defect is code or IDL that breaks a rule and becomes a TODO row, an accepted divergence is recorded under Divergences.
+
+| statement | class | action |
+| --- | --- | --- |
+| LOG-S14 under Next | outdated rule | moved to Rules under Sink; the config @2 controls stay under Next |
+| LOG-P5..P8 declared without brackets | outdated rule | bracketed heads, so `[LOG-P5]`..`[LOG-P8]` resolve |
+| Letter `N` missing from the letter table | outdated rule | added |
+| LOG-P4 and the conformance section said the service cannot attest | outdated rule | scoped to the standalone socket provider; the runtime service binds on three platforms |
+| README: account-wide history gate | outdated rule | reader@2 and observer@2 are served |
+
+## reader@2 ReadAboutCaller (A-F19), 2026-10-31
+
+LOG-P9 is new. `ApplicationHistoryReader` gains `ReadAboutCaller`, an additive
+reader@2 method under CONV-V1, with the `caller-log@1` Rights profile and a
+private subject stamp beside the emitter stamp. Earlier runtimes ignore that
+stamp when they read the same history. Existing methods, structs and grants are
+unchanged. A read with an empty cursor seeks to `since`.
+Every row a retained sink appends carries a private sink instant; earlier
+readers ignore it.
+
 Back to [CONTRACT.md](CONTRACT.md).

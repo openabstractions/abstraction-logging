@@ -290,6 +290,18 @@ class HandlerTests(unittest.TestCase):
         self.assertEqual(sinks[1].messages(), [GAP_MESSAGE, "moves to the new binding"])
         self.assertEqual(failure_class(failures[0]), "runtime_unavailable")
 
+    def test_resolved_handler_default_scope_passes_the_real_machine_bind(self):
+        from unittest import mock
+        from abstraction.facade import client
+        from abstraction.facade.client import Machine, ResolutionError
+
+        # The real Machine validates scope in _bind before it consults the
+        # runtime; on an unsupported platform default discovery loads no native
+        # library and resolution stops with runtime_unavailable right after.
+        with mock.patch.object(client, "unsupported_platform", return_value="android"):
+            with self.assertRaises(ResolutionError):
+                resolved_handler(Machine)
+
     def test_resolved_handler_raises_the_resolution_error_and_makes_no_handler(self):
         class NoRuntime:
             def resolve_log(self, *, scope):

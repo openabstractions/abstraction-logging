@@ -1,8 +1,12 @@
 package logging
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	timestampwire "github.com/openabstractions/abstraction-logging/go/abstraction/logging"
+	watch "github.com/openabstractions/abstraction-watch/go"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -31,14 +35,17 @@ type Sink interface {
 // other's. That is also why a record is written with a single Write call and why
 // oversized records are refused instead of being split.
 type FileSink struct {
-	mu             sync.Mutex
-	f              *os.File
-	path           string
-	historyEpoch   string
-	historyChanged chan struct{}
-	historyWaiters int
-	historyClosed  bool
-	retention      *fileRetention
+	mu           sync.Mutex
+	f            *os.File
+	path         string
+	historyEpoch string
+	// historyGate wakes history observers on every write (WATCH-W3).
+	historyGate   *watch.Gate
+	historyClosed bool
+	retention     *fileRetention
+	// lastAt keeps the sink-written instant (_oa_at) nondecreasing in append
+	// order within this process, also across a backward clock step.
+	lastAt time.Time
 
 	// MaxLine caps one encoded record. Beyond this the atomicity argument above
 	// stops holding and concurrent writers could interleave halves of two lines,
@@ -71,7 +78,7 @@ func OpenFileSink(path string) (*FileSink, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &FileSink{f: f, path: path, MaxLine: DefaultMaxLine}, nil
+	return &FileSink{f: f, path: path, MaxLine: DefaultMaxLine, historyGate: watch.NewGate(watch.DefaultWaiters)}, nil
 }
 
 func (s *FileSink) Path() string { return s.path }
@@ -100,17 +107,54 @@ func (s *FileSink) appendEncoded(b []byte) error {
 	if s.historyClosed {
 		return os.ErrClosed
 	}
+	// A retained sink stamps every row it appends with its own instant, under
+	// the append lock, so instants follow file order and only rows an earlier
+	// runtime wrote lack one (LOG-P9). An attributed row carries a fixed-width
+	// placeholder; any other row gains the field at its front. The caller's
+	// encoded row stays as it was; the stamped copy is appended.
+	if s.retention != nil && len(b) > 1 && b[0] == '{' {
+		now := time.Now().UTC()
+		if s.retention.now != nil {
+			now = s.retention.now().UTC()
+		}
+		if now.Before(s.lastAt) {
+			now = s.lastAt
+		}
+		s.lastAt = now
+		instant := timestampwire.FormatTimestamp(now)
+		if bytes.HasPrefix(b, atPlaceholder) {
+			b = append([]byte(nil), b...)
+			copy(b[len(atKey):], instant)
+		} else {
+			stamped := make([]byte, 0, len(b)+len(atPlaceholder)+1)
+			stamped = append(append(append(stamped, atKey...), instant...), '"')
+			if b[1] != '}' {
+				stamped = append(stamped, ',')
+			}
+			b = append(stamped, b[1:]...)
+		}
+	}
 	if s.retention != nil {
 		if err := s.prepareRetainedWriteLocked(int64(len(b))); err != nil {
 			return err
 		}
 	}
-	n, writeErr := s.f.Write(b)
-	if n > 0 && s.historyChanged != nil {
-		close(s.historyChanged)
-		s.historyChanged = make(chan struct{})
+	n, writeErr := writeLine(s.f, b)
+	if n > 0 {
+		s.historyGate.Advance()
+	}
+	if writeErr == nil && s.retention != nil && s.retention.keepNothing() {
+		return s.collectRetainedLocked(0)
 	}
 	return writeErr
+}
+
+func writeLine(out io.Writer, b []byte) (int, error) {
+	n, err := out.Write(b)
+	if n != len(b) && err == nil {
+		err = io.ErrShortWrite
+	}
+	return n, err
 }
 
 // ErrLineCap reports that no record fits: the cap is smaller than the smallest
@@ -119,6 +163,8 @@ func (s *FileSink) appendEncoded(b []byte) error {
 // cap breaks the interleaving property for every other writer sharing the file,
 // and it is distinguishable from an I/O failure so a caller can tell a
 // misconfigured cap from a full disk.
+// Exact owned attribution also returns ErrLineCap when its complete row exceeds
+// the explicit physical cap: that path never enters the shrink ladder.
 var ErrLineCap = errors.New("logging: line cap smaller than the smallest record")
 
 // truncated rebuilds an oversized record as a shorter one that says so. Dropping
@@ -260,9 +306,7 @@ func (s *FileSink) Close() error {
 	defer s.mu.Unlock()
 	if !s.historyClosed {
 		s.historyClosed = true
-		if s.historyChanged != nil {
-			close(s.historyChanged)
-		}
+		s.historyGate.Fail(os.ErrClosed)
 	}
 	var err error
 	if s.f != nil {

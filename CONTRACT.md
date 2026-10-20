@@ -1,5 +1,12 @@
 # abstraction.logging contract
 
+Remote profile: the current service methods retain `local` (explicit or
+default); the general paired listener does not offer this capability. Retained
+capability-specific delegation keeps its existing contract and is separate
+from that listener. Held by: `idl/gen/service_test.go`
+(`TestDispatcherTableCarriesRemoteProfile`) and `serve/runtime_remote_test.go`
+(`TestRemoteRuntimeDescribeUsesLiveGrantAndExplicitServices`).
+
 Binds: `logging.thrift`
 
 `logging.thrift` defines `abstraction.logging/sink@1`, the record-submission
@@ -12,6 +19,8 @@ API, because the language already has one. [README.md](README.md) is the
 door — what this module is, how to obtain it, one example that runs.
 
 ## Reading this page
+
+The conventions every OA contract carries are stated once in [CONVENTIONS.md](https://github.com/openabstractions/abstractions/blob/main/idl/CONVENTIONS.md); a rule here that applies one cites its `CONV-` id.
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD",
 "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY" and "OPTIONAL" in this
@@ -32,6 +41,7 @@ scenarios are in `testdata/scenarios/`.
 | S | sink — where a record goes and how delivery degrades |
 | I | identity — the attestation chain and who may be believed |
 | P | pages — what a sink attests it separates, and the retained-history reader's bounded pages |
+| N | native — the operating system's own log sources and their protected pages |
 
 `A` (admission) and `E` (error and outcome) are reserved with one meaning in
 every contract (S12) and are not separately declared here: every rule below
@@ -42,7 +52,7 @@ This release renames no wire field or method of `sink@1`, `reader@1` or
 
 ## Rules
 
-### Record
+### [Record](https://openabstractions.github.io/reference.html#concept-log.record)
 
 **[LOG-R1] One record, one line.** A record MUST be a single JSON object,
 terminated by exactly one LF, put on the wire in one write. That is what
@@ -93,16 +103,24 @@ message that still parses, another writes bytes no reader can decode, and a
 reader comparing the two sees a format disagreement rather than a shortened
 message.
 
+**[LOG-R9] [Record](https://openabstractions.github.io/reference.html#concept-log.record) content is data.** The service, every provider, every
+bridge handler and every reader MUST treat the message, the job and every
+attribute as inert text. No lookup, substitution, template expansion with
+external resolution, deserialization into objects or evaluation happens on
+any of them. A record carrying `${jndi:ldap://x/a}`, `%n`, `{0}` or `$(id)`
+reads back byte-identical. Log4Shell and its follow-up CVEs came from
+message lookups inside a logging library.
+
 Anything a particular logger knows that this record does not name travels
 in the attributes. No field is added for it, which is what lets one module
 learn something new without every other implementation changing shape.
 
-### Sink
+### [Sink](https://openabstractions.github.io/reference.html#concept-log.sink)
 
 Two kinds of sink answer this question: the **service sink**, resolved
 through the facade, and the **local sink**, the environment chain a
 provider selects by name. The service sink is the logging capability an
-application adopts: Go `Default`, `Resolve` and `NewResolvedHandler`, and
+application adopts: Go [Default](https://openabstractions.github.io/reference.html#concept-logging.default-handler), `Resolve` and `NewResolvedHandler`, and
 each language's `resolve_log`. `LOG-S11` governs its absent service, and
 `LOG-S12` and `LOG-S13` a service that disappears after binding. The local
 sink is Go `LegacyAuto` and `LegacyDefault`; `LOG-S1` to `LOG-S5` and
@@ -151,6 +169,18 @@ cap MUST be shrunk until it fits and MUST be marked as shrunk. It MUST NOT
 be dropped and MUST NOT be split across two writes: dropping loses the
 event most likely to matter, the one carrying a giant payload, and
 splitting breaks the one property that lets several writers share a file.
+
+The additive Go owned-audit path `EncodeAttributedExact`,
+`WriteAttributedExact` and `WithExactEmitter` accepts a trusted explicit
+physical-row cap and preserves every supplied value. It is restricted to the
+existing OS-locked, single-writer retained provider. A row exceeding that cap
+returns `ErrLineCap` without writing; it never enters this shrink ladder.
+The complete-row encoder, including private emitter evidence and newline, is
+the shared size-check and append authority. A successful size check reserves
+no storage, and an I/O failure may leave a partial append. This path supplies
+no large-write atomicity promise for shared files or multiple writers.
+Ordinary `Write`, `WriteAttributed`, `WithEmitter` and `MaxLine` retain their
+existing behavior and published Go signatures.
 
 **[LOG-S9] Shrinking is a finite ladder.** Every step MUST narrow the
 record. The message is not the only thing on a record that can be too
@@ -283,6 +313,30 @@ service MUST make the loss visible in four typed ways.
   attributes of an outage's delivered gap records sum to its drops. A
   close that reaches its deadline first leaves the rest unreported, as it
   leaves records abandoned.
+
+**[LOG-S14] History retention.** The history MUST be retained under
+`logs_max_use` and `logs_max_retention` (`research/storage-classes/DECISION.md`
+§5, §8). The Go service-owned provider rotates `records.jsonl` monthly and
+by size, removes expired completed segments by their newest write time,
+and removes the oldest completed segments to meet the encoded-byte limit
+(`go/retention.go`). The active writer remains protected under the same
+mutex. The limit counts the active JSONL file and completed JSONL segments;
+filesystem metadata and allocation rounding are outside it. `logs_max_use`
+defaults to 10% of the file system capped at 4G and `logs_max_retention`
+is unset by default, journald's own defaults for `SystemMaxUse` and
+`MaxRetentionSec`. The reader's existing `gap` outcome is the only new
+observable: a continuation whose unread records were removed returns `gap`,
+the same outcome a reopened or truncated file already returns, and the caller
+restarts from the empty cursor. Open, write and read enforce retention; hosts
+collect daily and may call the native `Collect` under storage pressure. A
+record larger than `logs_max_use` is refused by the provider and reported by
+the host's existing error callback. Collection failures are reported and
+prevent writes exceeding the bound. The runtime and standalone logging host
+select the accepted default; native providers may supply byte/age policy.
+Shared append-only `OpenFileSink` and adopter-owned log files keep their
+existing lifecycle. No durability receipt or record schema change is
+introduced. The person's controls over the retention keys are under
+[Next](#next).
 
 ### Identity
 
@@ -476,13 +530,13 @@ anything deciding on separation must refuse rather than assume.
 
 **[LOG-P4] A sink MUST report the separation the running platform can
 actually enforce, and MUST NOT report the separation its mechanism
-enforces elsewhere.** **This rule is not kept today.** A sink that forwards
-to a service reports `peer` on every platform, while the peer-credential
-lookup behind it answers on one and returns an error on the others — so on
-a platform with no attester the sink promises a separation nothing can
-deliver and every record it forwards is unattributed. The rule is stated
-because it is the rule; the gap is stated because a reader deciding a
-permission model on this answer would be wrong today.
+enforces elsewhere.** The runtime's logging service keeps this rule: it
+binds every caller through [Program](https://openabstractions.github.io/reference.html#concept-identity.listener-program-need) proof on Windows, Linux and macOS
+(`go/service/service.go`, `receiver.Write`). The standalone socket
+provider (`go/service.go`, `Server`) does not: a sink that forwards to it
+reports `peer` on every platform, while its peer-credential lookup answers
+on Linux alone (`go/peer_linux.go`) and returns an error elsewhere, so on
+those platforms every record it forwards is unattributed.
 
 #### Retained-history pages
 
@@ -550,7 +604,7 @@ program. All apps includes present and future programs whose records this
 account's owning OA logger receives. Native operating-system sources retain
 their separate source-reader API and exact source resources.
 
-**LOG-P5.** The receiving logger derives account, subject program and captured
+**[LOG-P5] Emitter identity.** The receiving logger derives account, subject program and captured
 file identity from its Program-proven caller. Its private persisted emitter
 stamp remains outside the public `Record` and its shrink ladder. Trusted
 in-process runtime events use the same owned append boundary with the runtime's
@@ -561,7 +615,7 @@ rows are excluded from @2; @1 retains its existing coarse record projection.
 Shared/adopter-owned append files supply no authoritative app attribution and
 do not advertise @2. Invalid private stamps in owned history return `corrupt`.
 
-**LOG-P6.** One app checks the typed application-log target; all apps additionally
+**[LOG-P6] Target checks.** One app checks the typed application-log target; all apps additionally
 checks explicit collection admission. Rights owns selector matching and block
 precedence. The logger supplies retained concrete emitter evidence to one quiet
 final `CheckBatchFor` snapshot. Per-emitter refusals filter members; selection
@@ -571,7 +625,7 @@ an intersecting live typed block conservatively refuses the coarse call. Typed
 app checks import applicable legacy history blocks. This overlap imports blocks
 only; an old history permit grants no new app-log selector.
 
-**LOG-P7.** Each call copies at most 256 physical rows and 1 MiB from one observed
+**[LOG-P7] Page bounds.** Each call copies at most 256 physical rows and 1 MiB from one observed
 retained-history position before target filtering. Outgoing distinct emitter
 checks stop before exceeding the shared 256-resource limit or the actual encoded
 1 MiB `CheckBatchFor` frame, including the caller and selection admission.
@@ -579,8 +633,16 @@ Exclusion precedes the returned 1..256 record and 1..65536 encoded-record-byte
 quotas. Empty pages may advance through excluded or blocked rows while
 `at_end` remains false. An included first record exceeding the returned byte
 budget yields `record_too_large`; excluded records consume no returned quota.
+The owned physical scanner recognizes complete larger audit rows while they
+fit the same 1 MiB scanned-work budget. A first physical row exceeding that
+budget yields `record_too_large`, with no partial-row cursor, corruption or
+end status; after earlier complete rows the oversized continuation remains
+for the next call. Public reader and observer `max_bytes` stays 1..65536.
+Oversized included audit rows may therefore be unavailable through these
+published profiles. These profiles retain their audit-browsing availability
+limit and native source-reader bounds.
 
-**LOG-P8.** Continuations are sealed to this host instance, caller, account,
+**[LOG-P8] Sealed continuations.** Continuations are sealed to this host instance, caller, account,
 selection, captured target and physical retained position. Resumption uses
 captured target evidence and never reopens today's image to reinterpret old
 rows. A changed selection, tampering, host restart or removed unread history
@@ -590,6 +652,49 @@ The cursor grants no authority lease. `Observe` scans once, waits once only
 at an empty physical end, then scans once more and checks a fresh final batch.
 Wait remains within 0..30000 ms with bounded waiters and disconnect cancellation.
 Selection admission is checked even for an empty or wholly excluded page.
+
+**[LOG-P10] Retained usage.** `HistoryReader.Usage` uses the same native
+admission and history-read authority as `Read`, rechecked before delivery.
+An available answer reports retained physical record bytes and effective active
+size/age budgets. An absent budget means known unlimited; a present limit's
+value of zero means zero. `max_use` is bytes and `max_retention_ms` is
+milliseconds, each using explicit optional scalar presence.
+Unknown budgets return
+`unavailable`. The optional oldest time is the first retained record's time in
+append/Read order, absent for empty history. A malformed first retained row
+returns `corrupt`; no usage values accompany a refusal. Providers bound the
+first-record read and keep retention and cleanup ownership. An earlier reader@1
+may return `unknown_method`; a caller reports usage unavailable. Existing
+Read-only native providers keep their Read capability and return unavailable
+for Usage.
+
+**[LOG-P9] Records about the caller.** `ReadAboutCaller` returns the
+records the receiving runtime wrote about the proven caller's own requests,
+from `since` onward. The subject is the bound caller and never an argument.
+A trusted in-process writer stamps such a record with the caller's program in
+a private subject field beside the emitter stamp; the public `Record` is
+unchanged, IPC and shared-file writers never set it, and earlier readers ignore
+it. The runtime stamps its inference request records for a local proven caller
+and the application command audit for the subject the call was decided for. A
+subject relayed by a paired runtime is not a proven local caller and stays
+unstamped. Admission is `abstraction.logging/history.read` on
+`abstraction.logging/caller-log@1`, whose one target is the rule subject itself;
+it grants no one-app or all-app application history, and an earlier
+whole-history block covers it. Bounds, sealed cursors and `gap` follow LOG-P7
+and LOG-P8; the cursor also binds `since` and the read mode. A read with an
+empty cursor seeks to `since`: it skips retained segments last written before
+it and positions inside the next segment by the instant the sink wrote each
+row, starting one minute early, and still filters each row by record time.
+Every row a retained sink appends, attributed or not, carries a private sink
+instant; earlier readers ignore it. The sink writes it under its append lock,
+nondecreasing in file order and continuing after a restart from the newest
+instant written, so a writer's record times cannot move the position. A row
+without the instant, written by an earlier runtime before the first stamped
+row, is placed by its record time. Records the engine writes
+under its
+own program stay under application-log@1. Held by:
+`go/service/caller_log_test.go`, `go/seek_test.go`, `abstraction-facade/go/grants/caller_log_test.go`,
+`serve/runtime_inference_log_test.go` and `serve/application_v3_gateway_audit_test.go`.
 
 `ApplicationLogPage` uses the closed `HistoryPageOutcome` vocabulary. Selection
 or collection policy denial returns `not_permitted`; a decision that cannot be
@@ -768,11 +873,10 @@ acknowledgement for copying external records.
   key is the trust root of its own sink, so a verifier can forge what it
   verifies. This is not the mechanism for a reader that must not be
   trusted with that.
-- **LOG-P4.** A sink that forwards to a service reports `peer` on every
-  platform, while the peer-credential lookup behind it answers on one
-  platform and returns an error on the others. The rule is stated because
-  it is the rule; the gap is stated because a reader deciding a permission
-  model on this answer would be wrong today.
+- **LOG-P4.** A sink that forwards to the standalone socket provider
+  reports `peer` on every platform, while that provider's peer-credential
+  lookup answers on Linux alone. The runtime's logging service is outside
+  this gap.
 
 ## Not built
 
@@ -787,29 +891,9 @@ acknowledgement for copying external records.
 
 ## Next
 
-- **[LOG-S14] History retention.** The history MUST be retained under
-  `logs_max_use` and `logs_max_retention` (`research/storage-classes/DECISION.md`
-  §5, §8). The Go service-owned provider rotates `records.jsonl` monthly and
-  by size, removes expired completed segments by their newest write time,
-  and removes the oldest completed segments to meet the encoded-byte limit.
-  The active writer remains protected under the same mutex. The limit counts
-  the active JSONL file and completed JSONL segments; filesystem metadata and
-  allocation rounding are outside it. `logs_max_use`
-  defaults to 10% of the file system capped at 4G and `logs_max_retention`
-  is unset by default, journald's own defaults for `SystemMaxUse` and
-  `MaxRetentionSec`. The reader's existing `gap` outcome is the only new
-  observable: a continuation whose unread records were removed returns `gap`,
-  the same outcome a reopened or truncated file already returns, and the caller
-  restarts from the empty cursor. Open, write and read enforce retention; hosts
-  collect daily and may call the native `Collect` under storage pressure. A
-  record larger than `logs_max_use` is refused by the provider and reported by
-  the host's existing error callback. Collection failures are reported and
-  prevent writes exceeding the bound. The runtime and standalone logging host
-  select the accepted default; native providers may supply byte/age policy.
-  User/machine/run controls, retention-key locking, provenance and stamp remain
-  the accepted config `reader@2`/`editor@2`/`observer@2` dependency. Shared
-  append-only `OpenFileSink` and adopter-owned log files keep their existing
-  lifecycle. No durability receipt or record schema change is introduced.
+- User, machine and run controls for `LOG-S14`'s retention keys, with
+  retention-key locking, provenance and stamp, wait on the accepted config
+  `reader@2`/`editor@2`/`observer@2` dependency.
 
 ## What a conformance run can reach
 
@@ -840,7 +924,7 @@ reason:
 | `LOG-I3` | a naming convention for mechanisms. A driver that named parties instead would still answer with tokens, and no expectation could tell which it meant |
 | `LOG-P2` | the mode is enforced on some platforms and not on others, so the same scenario would demand two different answers |
 | `LOG-P3` | reachable only on a platform whose access control this interface cannot read, which is exactly the platform where the answer is a constant |
-| `LOG-P4` | as above, and it is the rule this module does not keep |
+| `LOG-P4` | as above, and it is the rule the standalone socket provider does not keep |
 | `LOG-S11` | the scenario vocabulary scripts the environment chain and has no facade resolver to leave absent. Each language's facade tests reach it instead: Go `TestAdoptedSinkWithNoRuntimeFailsWithTheResolutionError`, `TestResolveVerifiedWithNoRuntimeIsTheResolutionError` and the facade client's `TestNoRuntimeInstalledIsAResolutionError`; Python `test_adopted_logging_with_no_runtime_fails_and_substitutes_nothing`; C++ `facade_resolution_error`; Rust `adopted_sink_with_no_runtime_is_the_resolution_error`; JavaScript `absence.mjs` |
 | `LOG-S12`, `LOG-S13` | the scenario vocabulary scripts one write at a time and has no clock, outage or queue. The shared fault `conformance/faults/sink-outage` reaches both in every language's tests instead: Go `TestSinkOutageFixture` and `TestBoundHandlerDeliversRecordsLoggedWhileTheRuntimeRestarts`; Python `test_sink_outage.py` and `test_handler.py`; C++ ctest `logging_sink_outage`; Rust `sink_outage_fixture`; JavaScript `test/logging.test.mjs` |
 
@@ -849,9 +933,11 @@ scenarios hand the driver what a platform's attester answered, so the
 arithmetic of the chain is judged on any machine. The same path — a
 writer, a relay and a receiver on three unix sockets, the kernel stamping
 both links — is run by this implementation's own tests on Linux, and
-nowhere else: the peer-credential lookup answers on one platform of three,
-and on the other two the service records that it could not attest and
-every record it accepts is unattributed with that reason.
+nowhere else: the standalone socket provider's peer-credential lookup
+answers on one platform of three, and on the other two that provider
+records that it could not attest and every record it accepts is
+unattributed with that reason. The runtime's logging service binds callers
+through Program proof on all three.
 
 **Not reachable by any run, in any language but one.** Python, C++, Rust
 and JavaScript have generated record codecs and logging clients, and

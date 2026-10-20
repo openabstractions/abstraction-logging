@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os/user"
 	"runtime"
-	"strconv"
 	"sync"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/openabstractions/abstraction-identity/listen"
 	logging "github.com/openabstractions/abstraction-logging/go"
 	wire "github.com/openabstractions/abstraction-logging/go/abstraction/logging"
+	watch "github.com/openabstractions/abstraction-watch/go"
 )
 
 type Host struct {
@@ -27,7 +27,7 @@ type Host struct {
 	cancel            context.CancelFunc
 	closeOnce         sync.Once
 	workers           sync.WaitGroup
-	calls             chan struct{}
+	calls             listen.CallAdmission
 	observers         chan struct{}
 	lifecycle         sync.Mutex
 	serving           bool
@@ -67,7 +67,7 @@ func Listen(endpoint string, out logging.Sink) (*Host, error) {
 		l.Close()
 		return nil, err
 	}
-	return &Host{listener: listen.Sessions(l, listen.SessionOptions{MaxSessions: 64}), out: out, owner: owner.Uid, ctx: ctx, cancel: cancel, calls: make(chan struct{}, 64), observers: make(chan struct{}, 32), applicationSeal: seal}, nil
+	return &Host{listener: listen.Sessions(l, listen.SessionOptions{MaxSessions: 64}), out: out, owner: owner.Uid, ctx: ctx, cancel: cancel, calls: listen.NewCallAdmission(64), observers: make(chan struct{}, 32), applicationSeal: seal}, nil
 }
 
 func (h *Host) Close() error {
@@ -101,16 +101,14 @@ func (h *Host) Serve(ctx context.Context) error {
 			}
 			return err
 		}
-		select {
-		case h.calls <- struct{}{}:
-		default:
-			connection.Close()
+		release, admitted := h.calls.Take(connection)
+		if !admitted {
 			continue
 		}
 		h.workers.Add(1)
 		go func() {
 			defer h.workers.Done()
-			defer func() { <-h.calls }()
+			defer release()
 			defer connection.Close()
 			requestContext, cancel := context.WithTimeout(h.ctx, 35*time.Second)
 			defer cancel()
@@ -129,7 +127,7 @@ func (h *Host) Serve(ctx context.Context) error {
 				name, err = wire.ServiceName(call.Frame)
 				if err == nil {
 					switch name {
-					case "abstraction.logging/reader@1", "abstraction.logging/observer@1", "abstraction.logging/reader@2", "abstraction.logging/observer@2", "abstraction.logging/source-reader@1", wire.EndpointContract:
+					case "abstraction.logging/reader@1", "abstraction.logging/observer@1", "abstraction.logging/reader@2", "abstraction.logging/observer@2", "abstraction.logging/source-reader@1", wire.EndpointContract, "abstraction.facade/endpoint@2":
 						var reply []byte
 						reply, err = wire.ServeEndpoint(call.Frame, "openabstractions", "",
 							&wire.SinkDispatcher{Handler: handler},
@@ -169,7 +167,8 @@ type receiver struct {
 	ctx               context.Context
 }
 
-// History policy refusal codes returned as service errors.
+// Legacy untyped constants remain source-compatible for Go callers. Service
+// errors use the generated ServiceErrorCode members.
 const (
 	CodeForbidden         = "forbidden"
 	CodePolicyUnavailable = "policy_unavailable"
@@ -235,45 +234,40 @@ func (r *receiver) Write(value wire.Record) error {
 	attested := (&logging.Server{}).Accept(record, peer, nil)
 	if out, ok := r.out.(logging.AttributedSink); ok {
 		if provider, owned := r.out.(applicationHistoryProvider); owned && provider.ApplicationHistoryAvailable() {
-			program, err := identity.SubjectProgram(observed, listen.Program.Path)
+			subject, err := identity.SubjectOf(observed, listen.Program)
 			if err != nil {
 				return err
 			}
-			account := ""
-			if user.Kind == "windows" {
-				account = user.SID
-			} else if user.Kind == "posix" {
-				account = strconv.Itoa(user.UID)
-			}
-			return out.WriteAttributed(attested, logging.Emitter{Version: 1, Account: account, Program: program, Key: identity.ProgramKey(program)})
+			return out.WriteAttributed(attested, logging.Emitter{Version: 1, Account: subject.Account, Program: subject.Program, Key: identity.ProgramKey(subject.Program)})
 		}
 	}
 	return r.out.Write(attested)
 }
 
 // HistoryAvailable describes the selected provider, independently of write readiness.
+type historyReader interface {
+	Read(string, int64, int64) (wire.Page, error)
+}
+
 func (h *Host) HistoryAvailable() bool {
-	_, ok := h.out.(wire.HistoryReader)
+	_, ok := h.out.(historyReader)
 	return ok
 }
 
 func (r *receiver) authorizeHistory() error {
 	peer, err := r.call.Peer()
 	if err != nil {
-		return &wire.ServiceError{Code: "caller_unavailable", Message: "caller identity could not be rechecked"}
+		return &wire.ServiceError{Code: wire.ServiceErrorCodeCallerUnavailable, Message: "caller identity could not be rechecked"}
 	}
-	who, err := peer.User.AtLeast(listen.Program.User)
-	if err != nil {
-		return &wire.ServiceError{Code: "identity_required", Message: "kernel user identity required"}
-	}
-	principal := ""
-	if who.Kind == "windows" {
-		principal = who.SID
-	} else if who.Kind == "posix" {
-		principal = strconv.Itoa(who.UID)
-	}
-	if principal == "" || principal != r.owner {
-		return &wire.ServiceError{Code: "wrong_user", Message: "history belongs to another user"}
+	_, verdict := identity.AdmitOwner(peer, identity.Need{User: listen.Program.User}, r.owner)
+	switch verdict {
+	case identity.OwnerAdmitted:
+	case identity.OwnerIdentityRequired, identity.OwnerUnavailable:
+		return &wire.ServiceError{Code: wire.ServiceErrorCodeIdentityRequired, Message: "kernel user identity required"}
+	case identity.OwnerOtherAccount:
+		return &wire.ServiceError{Code: wire.ServiceErrorCodeWrongUser, Message: "history belongs to another user"}
+	default:
+		return &wire.ServiceError{Code: wire.ServiceErrorCodeCallerUnavailable, Message: "caller identity could not be rechecked"}
 	}
 	if r.history == nil {
 		return nil
@@ -287,9 +281,9 @@ func (r *receiver) authorizeHistory() error {
 		return nil
 	}
 	if ctx.Err() != nil || errors.Is(err, ErrHistoryPolicyUnavailable) {
-		return &wire.ServiceError{Code: CodePolicyUnavailable, Message: "history policy decision unavailable"}
+		return &wire.ServiceError{Code: wire.ServiceErrorCodePolicyUnavailable, Message: "history policy decision unavailable"}
 	}
-	return &wire.ServiceError{Code: CodeForbidden, Message: "history reading not permitted"}
+	return &wire.ServiceError{Code: wire.ServiceErrorCodeForbidden, Message: "history reading not permitted"}
 }
 
 func (r *receiver) Read(cursor string, maxRecords, maxBytes int64) (wire.Page, error) {
@@ -299,10 +293,30 @@ func (r *receiver) Read(cursor string, maxRecords, maxBytes int64) (wire.Page, e
 	if maxRecords < 1 || maxRecords > 256 || maxBytes < 1 || maxBytes > 65536 {
 		return wire.Page{Outcome: wire.PageOutcomeInvalidRequest, Records: []wire.Record{}, Next: cursor}, nil
 	}
-	if source, ok := r.out.(wire.HistoryReader); ok {
+	if source, ok := r.out.(historyReader); ok {
 		return source.Read(cursor, maxRecords, maxBytes)
 	}
 	return wire.Page{Outcome: wire.PageOutcomeUnavailable, Records: []wire.Record{}, Next: cursor}, nil
+}
+
+func (r *receiver) Usage() (wire.HistoryUsageResult, error) {
+	if err := r.authorizeHistory(); err != nil {
+		return wire.HistoryUsageResult{}, err
+	}
+	result := wire.HistoryUsageResult{Outcome: wire.HistoryUsageOutcomeUnavailable}
+	if source, ok := r.out.(interface {
+		Usage() (wire.HistoryUsageResult, error)
+	}); ok {
+		var err error
+		result, err = source.Usage()
+		if err != nil {
+			return wire.HistoryUsageResult{}, err
+		}
+	}
+	if err := r.authorizeHistory(); err != nil {
+		return wire.HistoryUsageResult{}, err
+	}
+	return result, nil
 }
 
 // ObservationAvailable reports native notification support for this provider.
@@ -321,13 +335,20 @@ func (r *receiver) Observe(cursor string, maxRecords, maxBytes, waitMS int64) (w
 	if !ok {
 		return refusal(wire.PageOutcomeUnsupported)
 	}
-	if waitMS > 0 {
+	// A source with its own gate bounds its waiters (WATCH-W2); the host
+	// bound covers only a source that has none.
+	if _, gated := r.out.(historyGated); !gated && waitMS > 0 {
 		select {
 		case r.observers <- struct{}{}:
 			defer func() { <-r.observers }()
 		default:
 			return refusal(wire.PageOutcomeUnavailable)
 		}
+	}
+	// A source that takes the recheck runs it after every read (WATCH-W4);
+	// any other source is rechecked once after it returns.
+	if rechecked, ok := r.out.(historyRechecked); ok {
+		return rechecked.ObserveRechecked(r.call.WaitContext(), cursor, maxRecords, maxBytes, waitMS, r.authorizeHistory)
 	}
 	page, err := source.ObserveContext(r.call.WaitContext(), cursor, maxRecords, maxBytes, waitMS)
 	if err != nil {
@@ -337,4 +358,13 @@ func (r *receiver) Observe(cursor string, maxRecords, maxBytes, waitMS int64) (w
 		return wire.Page{}, err
 	}
 	return page, nil
+}
+
+// historyGated is a history source that waits on its own watch.Gate.
+type historyGated interface{ HistoryGate() *watch.Gate }
+
+// historyRechecked is a history source whose wait rechecks the caller's
+// authority after every read.
+type historyRechecked interface {
+	ObserveRechecked(ctx context.Context, cursor string, maxRecords, maxBytes, waitMS int64, recheck func() error) (wire.Page, error)
 }

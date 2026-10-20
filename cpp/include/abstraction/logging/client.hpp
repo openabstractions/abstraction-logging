@@ -1,6 +1,7 @@
 #pragma once
 #include <abstraction/logging/rec.h>
 #include <abstraction/ipc/frame.hpp>
+#include <abstraction/facade/bootstrap.hpp>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -13,17 +14,19 @@ inline std::string default_endpoint() {
     if (const char* value = std::getenv("ABSTRACTION_LOG_ENDPOINT")) {
         if (*value) return value;
     }
-#ifdef _WIN32
-    return R"(\\.\pipe\openabstractions-logging-v1)";
-#else
-    if (const char* value = std::getenv("XDG_RUNTIME_DIR")) {
-        if (*value) return std::string(value) + "/openabstractions-logging-v1.sock";
-    }
-    const char* temporary = std::getenv("TMPDIR");
-    const char* user = std::getenv("USER");
-    return std::string(temporary && *temporary ? temporary : "/tmp") +
-        "/openabstractions-logging-v1-" + (user ? user : "") + ".sock";
-#endif
+    return abstraction::facade::bootstrap::installed_endpoint("logging-v1");
+}
+
+namespace detail {
+// One connection to the logging provider: the caller's waiting budget, else
+// two seconds, with its cancellation and expected server.
+inline ipc::FrameTransport transport(const std::string& endpoint, const std::optional<ipc::Deadline>& deadline,
+                                     const ipc::CancellationToken& cancellation,
+                                     const std::optional<ipc::ServerExpectation>& server) {
+    auto transport = deadline ? ipc::FrameTransport(endpoint, *deadline, ipc::kDefaultMaxFrame)
+                              : ipc::FrameTransport(endpoint, 2000, ipc::kDefaultMaxFrame);
+    return transport.with_cancellation(cancellation).with_server_expectation(server);
+}
 }
 
 // A capability client: no sink, store, listener, or fallback provider.
@@ -36,9 +39,7 @@ public:
         : endpoint_(std::move(endpoint)), deadline_(deadline) {}
 
     void write(const Record& record) const {
-        auto transport = deadline_ ? ipc::FrameTransport(endpoint_, *deadline_, 1 << 20)
-                                   : ipc::FrameTransport(endpoint_, 2000, 1 << 20);
-        transport = transport.with_cancellation(cancellation_).with_server_expectation(server_);
+        auto transport = detail::transport(endpoint_, deadline_, cancellation_, server_);
         SinkClient<ipc::FrameTransport> client(transport);
         client.write(record);
     }
@@ -98,16 +99,26 @@ inline void validate(const Page& page,const std::string& cursor,std::int64_t max
 }
 // A history binding retains its provider and optional caller waiting budget.
 class History {
+private:
+ // client runs one call on a reader over a fresh connection; the connection
+ // lives until the call returns.
+ template<class Call> auto client(Call call) const {
+  auto transport=detail::transport(endpoint_,deadline_,cancellation_,server_);
+  HistoryReaderClient<ipc::FrameTransport> reader(transport);
+  return call(reader);
+ }
 public:
  explicit History(std::string endpoint):endpoint_(std::move(endpoint)) {}
  History(std::string endpoint,ipc::Deadline deadline):endpoint_(std::move(endpoint)),deadline_(deadline) {}
  Page read(const std::string& cursor, std::int64_t max_records=64, std::int64_t max_bytes=65536) const {
-  auto transport=deadline_ ? ipc::FrameTransport(endpoint_,*deadline_,1<<20) : ipc::FrameTransport(endpoint_,2000,1<<20);
-  transport=transport.with_cancellation(cancellation_).with_server_expectation(server_);
-  HistoryReaderClient<ipc::FrameTransport> client(transport);
-  auto page=client.read(cursor,max_records,max_bytes);
+  auto page=client([&](auto& reader){return reader.read(cursor,max_records,max_bytes);});
   history_detail::validate(page,cursor,max_records,max_bytes);
   return page;
+ }
+ // The provider's retained-history usage under the same authorization as
+ // read; an earlier reader@1 refuses it as unknown_method.
+ HistoryUsageResult usage() const {
+  return client([](auto& reader){return reader.usage();});
  }
  History with_server_expectation(std::optional<ipc::ServerExpectation> server) const {auto copy=*this;copy.server_=std::move(server);return copy;}
  History with_cancellation(ipc::CancellationToken token) const {
@@ -127,8 +138,7 @@ public:
  Observer(std::string endpoint,ipc::Deadline deadline):endpoint_(std::move(endpoint)),deadline_(deadline) {}
  Page observe(const std::string& cursor,std::int64_t max_records=64,std::int64_t max_bytes=65536,std::int64_t wait_ms=0)const {
   if(wait_ms<0||wait_ms>30000)throw std::invalid_argument("logging: wait_ms must be 0..30000");
-  auto transport=deadline_ ? ipc::FrameTransport(endpoint_,*deadline_,1<<20) : ipc::FrameTransport(endpoint_,2000,1<<20);
-  transport=transport.with_cancellation(cancellation_).with_server_expectation(server_);
+  auto transport=detail::transport(endpoint_,deadline_,cancellation_,server_);
   HistoryObserverClient<ipc::FrameTransport> client(transport);
   auto page=client.observe(cursor,max_records,max_bytes,wait_ms);
   history_detail::validate(page,cursor,max_records,max_bytes);return page;

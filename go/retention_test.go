@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openabstractions/abstraction-identity/fileid"
 	wire "github.com/openabstractions/abstraction-logging/go/abstraction/logging"
 )
 
@@ -27,7 +28,8 @@ func retentionRecordBytes(t *testing.T, msg string) int64 {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return int64(len(b))
+	// A retained sink stamps each row with its instant: `"_oa_at":"<instant>",`.
+	return int64(len(b) + len(atKey) - 1 + len(atLayout) + 2)
 }
 
 func retainedBytes(t *testing.T, s *FileSink) int64 {
@@ -186,13 +188,13 @@ func TestRetentionAgeBoundaryAndActiveProtection(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.retention.now = func() time.Time { return base.Add(time.Hour - time.Nanosecond) }
-	before, _ := s.f.Stat()
+	before, _ := fileid.FileKeyOf(s.f)
 	if err := s.Collect(); err != nil {
 		t.Fatal(err)
 	}
 	page, err := s.Read("", 256, 65536)
-	after, _ := s.f.Stat()
-	if err != nil || len(page.Records) != 1 || !os.SameFile(before, after) {
+	after, _ := fileid.FileKeyOf(s.f)
+	if err != nil || len(page.Records) != 1 || before == "" || before != after {
 		t.Fatalf("age before boundary/active protection: %+v %v", page, err)
 	}
 	s.retention.now = func() time.Time { return base.Add(time.Hour) }

@@ -46,53 +46,9 @@ def _strs(out, v, depth):
 
 
 def _raw(out, s, depth):
-    b = s.encode("utf-8") if isinstance(s, str) else s
-    i, n = 0, len(b)
-    while i < n:
-        c = b[i]
-        if c in _WS:
-            i += 1
-        elif c == 0x22:
-            j = i + 1
-            while j < n:
-                if b[j] == 0x5C:
-                    j += 2
-                    continue
-                if b[j] == 0x22:
-                    j += 1
-                    break
-                j += 1
-            out += b[i:j]
-            i = j
-        elif c in (0x7B, 0x5B):
-            out.append(c)
-            i += 1
-            j = i
-            while j < n and b[j] in _WS:
-                j += 1
-            if j < n and b[j] in (0x7D, 0x5D):
-                out.append(b[j])
-                i = j + 1
-            else:
-                depth += 1
-                out += b"\n"
-                _pad(out, depth)
-        elif c in (0x7D, 0x5D):
-            depth -= 1
-            out += b"\n"
-            _pad(out, depth)
-            out.append(c)
-            i += 1
-        elif c == 0x2C:
-            out += b",\n"
-            _pad(out, depth)
-            i += 1
-        elif c == 0x3A:
-            out += b": "
-            i += 1
-        else:
-            out.append(c)
-            i += 1
+    # An opaque value's bytes as they are ([DEF-A3]).
+    # Whitespace around the value is not part of it.
+    out += (s.encode("utf-8") if isinstance(s, str) else bytes(s)).strip(bytes(_WS))
 
 
 def _rawmap(out, m, depth):
@@ -186,6 +142,14 @@ class PageOutcome(_StrEnum):
     UNSUPPORTED = "unsupported"
 
 
+class HistoryUsageOutcome(_StrEnum):
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
+    CORRUPT = "corrupt"
+    FORBIDDEN = "forbidden"
+    INVALID = "invalid"
+
+
 class HistoryPageOutcome(_StrEnum):
     PAGE = "page"
     GAP = "gap"
@@ -242,6 +206,24 @@ class ServiceErrorCode(_StrEnum):
     FORBIDDEN = "forbidden"
 
 
+DEFAULT_ASYNC_CAPACITY = 1024
+
+
+DEFAULT_INITIAL_BACKOFF_MS = 100
+
+
+DEFAULT_MAX_BACKOFF_MS = 5000
+
+
+DEFAULT_WRITE_TIMEOUT_MS = 5000
+
+
+WRITER_BACKOFF_JITTER_PERCENT = 20
+
+
+WRITER_GAP_MESSAGE = "records dropped while the sink was unreachable"
+
+
 HISTORY_ERROR_CODES = ["caller_unavailable", "identity_required", "wrong_user", "policy_unavailable", "forbidden"]
 
 
@@ -275,6 +257,8 @@ class Attestation:
 
 @dataclasses.dataclass(kw_only=True)
 class Record:
+    """[Record](https://openabstractions.github.io/reference.html#concept-log.record)"""
+
     schema: int = 0
     time: str = ""
     level: int = 0
@@ -296,6 +280,29 @@ class Page:
     records: list[Record] = dataclasses.field(default_factory=list)
     next: str = ""
     at_end: bool = False
+
+
+@dataclasses.dataclass(kw_only=True)
+class HistoryUsage:
+    """A snapshot of retained history bytes and effective provider budgets. max_use
+    is bytes; max_retention_ms is milliseconds. An absent limit is known
+    unlimited; a present value of zero is zero. Unknown budgets make Usage
+    unavailable. Absent oldest means empty history. oldest follows append order,
+    not timestamp sorting."""
+
+    retained_bytes: int = 0
+    oldest: str = ""
+    max_use: int | None = None
+    max_retention_ms: int | None = None
+
+
+@dataclasses.dataclass(kw_only=True)
+class HistoryUsageResult:
+    """usage is present exactly for available; unavailable and corrupt expose no
+    usage snapshot."""
+
+    outcome: HistoryUsageOutcome | None = None
+    usage: HistoryUsage | None = None
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -395,6 +402,11 @@ class _SinkWriteArguments:
 
 
 @dataclasses.dataclass(kw_only=True)
+class _HistoryReaderUsageArguments:
+    pass
+
+
+@dataclasses.dataclass(kw_only=True)
 class _HistoryReaderReadArguments:
     cursor: str = ""
     max_records: int = 0
@@ -412,6 +424,14 @@ class _HistoryObserverObserveArguments:
 @dataclasses.dataclass(kw_only=True)
 class _ApplicationHistoryReaderReadArguments:
     target: ApplicationLogTarget = dataclasses.field(default_factory=ApplicationLogTarget)
+    cursor: str = ""
+    max_records: int = 0
+    max_bytes: int = 0
+
+
+@dataclasses.dataclass(kw_only=True)
+class _ApplicationHistoryReaderReadAboutCallerArguments:
+    since: str = ""
     cursor: str = ""
     max_records: int = 0
     max_bytes: int = 0
@@ -468,6 +488,11 @@ class _ServiceError:
 
 
 @dataclasses.dataclass(kw_only=True)
+class _HistoryReaderUsageResult:
+    value: HistoryUsageResult = dataclasses.field(default_factory=HistoryUsageResult)
+
+
+@dataclasses.dataclass(kw_only=True)
 class _HistoryReaderReadResult:
     value: Page = dataclasses.field(default_factory=Page)
 
@@ -479,6 +504,11 @@ class _HistoryObserverObserveResult:
 
 @dataclasses.dataclass(kw_only=True)
 class _ApplicationHistoryReaderReadResult:
+    value: ApplicationLogPage = dataclasses.field(default_factory=ApplicationLogPage)
+
+
+@dataclasses.dataclass(kw_only=True)
+class _ApplicationHistoryReaderReadAboutCallerResult:
     value: ApplicationLogPage = dataclasses.field(default_factory=ApplicationLogPage)
 
 
@@ -665,6 +695,71 @@ def _write_page(out, v, depth):
     _esc(out, "at_end")
     out += b": "
     out += b"true" if v.at_end else b"false"
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_history_usage(out, v, depth):
+    if v.max_use is not None and type(v.max_use) is not int: raise Refusal("wrong_type", 0)
+    if v.max_use is not None and not (-9223372036854775808 <= v.max_use <= 9223372036854775807): raise Refusal("number_spelling", 0)
+    if v.max_retention_ms is not None and type(v.max_retention_ms) is not int: raise Refusal("wrong_type", 0)
+    if v.max_retention_ms is not None and not (-9223372036854775808 <= v.max_retention_ms <= 9223372036854775807): raise Refusal("number_spelling", 0)
+    if type(v.retained_bytes) is not int: raise Refusal("wrong_type", 0)
+    if v.retained_bytes < 0 or v.retained_bytes > 9223372036854775807: raise Refusal("bad_value", 0)
+    if v.max_use is not None:
+        if type(v.max_use) is not int: raise Refusal("wrong_type", 0)
+        if v.max_use < 0 or v.max_use > 9223372036854775807: raise Refusal("bad_value", 0)
+    if v.max_retention_ms is not None:
+        if type(v.max_retention_ms) is not int: raise Refusal("wrong_type", 0)
+        if v.max_retention_ms < 0 or v.max_retention_ms > 9223372036854775807: raise Refusal("bad_value", 0)
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "retained_bytes")
+    out += b": "
+    _num(out, v.retained_bytes)
+    if v.oldest:
+        out += b","
+        out += b"\n"
+        _pad(out, depth + 1)
+        _esc(out, "oldest")
+        out += b": "
+        _esc(out, _write_timestamp(v.oldest))
+    if v.max_use is not None:
+        out += b","
+        out += b"\n"
+        _pad(out, depth + 1)
+        _esc(out, "max_use")
+        out += b": "
+        _num(out, v.max_use)
+    if v.max_retention_ms is not None:
+        out += b","
+        out += b"\n"
+        _pad(out, depth + 1)
+        _esc(out, "max_retention_ms")
+        out += b": "
+        _num(out, v.max_retention_ms)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_history_usage_result(out, v, depth):
+    _closed_enum(HistoryUsageOutcome, v.outcome)
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "outcome")
+    out += b": "
+    _esc(out, v.outcome)
+    if v.usage is not None:
+        out += b","
+        out += b"\n"
+        _pad(out, depth + 1)
+        _esc(out, "usage")
+        out += b": "
+        _write_history_usage(out, v.usage, depth + 1)
     out += b"\n"
     _pad(out, depth)
     out += b"}"
@@ -925,6 +1020,11 @@ def _write_oa_sink_write_arguments(out, v, depth):
     out += b"}"
 
 
+def _write_oa_history_reader_usage_arguments(out, v, depth):
+    out += b"{"
+    out += b"}"
+
+
 def _write_oa_history_reader_read_arguments(out, v, depth):
     out += b"{"
     out += b"\n"
@@ -986,6 +1086,39 @@ def _write_oa_application_history_reader_read_arguments(out, v, depth):
     _esc(out, "target")
     out += b": "
     _write_application_log_target(out, v.target, depth + 1)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "cursor")
+    out += b": "
+    _esc(out, v.cursor)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "max_records")
+    out += b": "
+    _num(out, v.max_records)
+    out += b","
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "max_bytes")
+    out += b": "
+    _num(out, v.max_bytes)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_oa_application_history_reader_read_about_caller_arguments(out, v, depth):
+    if isinstance(v.cursor, str):
+        _size = len(v.cursor.encode("utf-8", "surrogatepass"))
+        if _size > 131072: raise Refusal("bad_value", 0)
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "since")
+    out += b": "
+    _esc(out, _write_timestamp(v.since))
     out += b","
     out += b"\n"
     _pad(out, depth + 1)
@@ -1176,6 +1309,18 @@ def _write_oa_service_error(out, v, depth):
     out += b"}"
 
 
+def _write_oa_history_reader_usage_result(out, v, depth):
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "value")
+    out += b": "
+    _write_history_usage_result(out, v.value, depth + 1)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
 def _write_oa_history_reader_read_result(out, v, depth):
     out += b"{"
     out += b"\n"
@@ -1201,6 +1346,18 @@ def _write_oa_history_observer_observe_result(out, v, depth):
 
 
 def _write_oa_application_history_reader_read_result(out, v, depth):
+    out += b"{"
+    out += b"\n"
+    _pad(out, depth + 1)
+    _esc(out, "value")
+    out += b": "
+    _write_application_log_page(out, v.value, depth + 1)
+    out += b"\n"
+    _pad(out, depth)
+    out += b"}"
+
+
+def _write_oa_application_history_reader_read_about_caller_result(out, v, depth):
     out += b"{"
     out += b"\n"
     _pad(out, depth + 1)
@@ -1947,6 +2104,113 @@ def _read_page(r):
     return v
 
 
+def _read_history_usage(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = HistoryUsage()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "retained_bytes":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.retained_bytes = r.integer(-9223372036854775808, 9223372036854775807)
+            elif key == "oldest":
+                if seen & 2:
+                    raise r.refuse("duplicate_field")
+                seen |= 2
+                v.oldest = _read_timestamp(r)
+            elif key == "max_use":
+                if seen & 4:
+                    raise r.refuse("duplicate_field")
+                seen |= 4
+                v.max_use = r.integer(-9223372036854775808, 9223372036854775807)
+            elif key == "max_retention_ms":
+                if seen & 8:
+                    raise r.refuse("duplicate_field")
+                seen |= 8
+                v.max_retention_ms = r.integer(-9223372036854775808, 9223372036854775807)
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 1 != 1:
+        raise r.refuse("missing_field")
+    if v.retained_bytes < 0 or v.retained_bytes > 9223372036854775807: raise r.refuse("bad_value")
+    if v.max_use is not None:
+        if v.max_use < 0 or v.max_use > 9223372036854775807: raise r.refuse("bad_value")
+    if v.max_retention_ms is not None:
+        if v.max_retention_ms < 0 or v.max_retention_ms > 9223372036854775807: raise r.refuse("bad_value")
+    return v
+
+
+def _read_history_usage_result(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = HistoryUsageResult()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "outcome":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.outcome = r.string()
+            elif key == "usage":
+                if seen & 2:
+                    raise r.refuse("duplicate_field")
+                seen |= 2
+                v.usage = _read_history_usage(r)
+            else:
+                r.skip_value()
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 1 != 1:
+        raise r.refuse("missing_field")
+    try:
+        v.outcome = HistoryUsageOutcome(v.outcome)
+    except ValueError:
+        raise r.refuse("bad_enum") from None
+    return v
+
+
 def _read_application_log_target(r):
     if r.at() != _LBRACE:
         raise r.refuse("wrong_type")
@@ -2412,6 +2676,40 @@ def _read_oa_sink_write_arguments(r):
     return v
 
 
+def _read_oa_history_reader_usage_arguments(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = _HistoryReaderUsageArguments()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if False:
+                pass
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    return v
+
+
 def _read_oa_history_reader_read_arguments(r):
     if r.at() != _LBRACE:
         raise r.refuse("wrong_type")
@@ -2566,6 +2864,62 @@ def _read_oa_application_history_reader_read_arguments(r):
     r.depth -= 1
     if seen & 15 != 15:
         raise r.refuse("missing_field")
+    return v
+
+
+def _read_oa_application_history_reader_read_about_caller_arguments(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = _ApplicationHistoryReaderReadAboutCallerArguments()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "since":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.since = _read_timestamp(r)
+            elif key == "cursor":
+                if seen & 2:
+                    raise r.refuse("duplicate_field")
+                seen |= 2
+                v.cursor = r.string()
+            elif key == "max_records":
+                if seen & 4:
+                    raise r.refuse("duplicate_field")
+                seen |= 4
+                v.max_records = r.integer(-9223372036854775808, 9223372036854775807)
+            elif key == "max_bytes":
+                if seen & 8:
+                    raise r.refuse("duplicate_field")
+                seen |= 8
+                v.max_bytes = r.integer(-9223372036854775808, 9223372036854775807)
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 15 != 15:
+        raise r.refuse("missing_field")
+    _size = len(v.cursor.encode("utf-8", "surrogatepass"))
+    if _size > 131072: raise r.refuse("bad_value")
     return v
 
 
@@ -2912,6 +3266,45 @@ def _read_oa_service_error(r):
     return v
 
 
+def _read_oa_history_reader_usage_result(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = _HistoryReaderUsageResult()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "value":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.value = _read_history_usage_result(r)
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 1 != 1:
+        raise r.refuse("missing_field")
+    return v
+
+
 def _read_oa_history_reader_read_result(r):
     if r.at() != _LBRACE:
         raise r.refuse("wrong_type")
@@ -2996,6 +3389,45 @@ def _read_oa_application_history_reader_read_result(r):
     r.enter()
     r.pos += 1
     v = _ApplicationHistoryReaderReadResult()
+    seen = 0
+    r.ws()
+    if r.at() != _RBRACE:
+        while True:
+            r.ws()
+            if r.at() != _QUOTE:
+                raise r.refuse("malformed")
+            key = r.string()
+            r.ws()
+            if r.at() != _COLON:
+                raise r.refuse("malformed")
+            r.pos += 1
+            r.ws()
+            if key == "value":
+                if seen & 1:
+                    raise r.refuse("duplicate_field")
+                seen |= 1
+                v.value = _read_application_log_page(r)
+            else:
+                raise r.refuse("unknown_field")
+            r.ws()
+            if r.at() != _COMMA:
+                break
+            r.pos += 1
+    if r.at() != _RBRACE:
+        raise r.refuse("malformed")
+    r.pos += 1
+    r.depth -= 1
+    if seen & 1 != 1:
+        raise r.refuse("missing_field")
+    return v
+
+
+def _read_oa_application_history_reader_read_about_caller_result(r):
+    if r.at() != _LBRACE:
+        raise r.refuse("wrong_type")
+    r.enter()
+    r.pos += 1
+    v = _ApplicationHistoryReaderReadAboutCallerResult()
     seen = 0
     r.ws()
     if r.at() != _RBRACE:
@@ -3195,9 +3627,51 @@ def decode(data):
     return v
 
 
+_JSON_RECORDS = {
+    Attestation: (_write_attestation, _read_attestation),
+    Record: (_write_record, _read_record),
+    Page: (_write_page, _read_page),
+    HistoryUsage: (_write_history_usage, _read_history_usage),
+    HistoryUsageResult: (_write_history_usage_result, _read_history_usage_result),
+    ApplicationLogTarget: (_write_application_log_target, _read_application_log_target),
+    ApplicationLogResource: (_write_application_log_resource, _read_application_log_resource),
+    ApplicationLogPage: (_write_application_log_page, _read_application_log_page),
+    SourceDescriptor: (_write_source_descriptor, _read_source_descriptor),
+    SourceCatalog: (_write_source_catalog, _read_source_catalog),
+    ProducerClaim: (_write_producer_claim, _read_producer_claim),
+    SourceRecord: (_write_source_record, _read_source_record),
+    SourcePage: (_write_source_page, _read_source_page),
+}
+
+
+def to_json(value):
+    """One record as JSON bytes, laid out as this module's documents are and
+    without the document terminator."""
+    codec = _JSON_RECORDS.get(type(value))
+    if codec is None:
+        raise TypeError("to_json takes a record of this module, not %s" % type(value).__name__)
+    out = bytearray()
+    codec[0](out, value, 0)
+    return bytes(out)
+
+
+def from_json(kind, data):
+    """Read one record of class kind from data; a refused input raises Refusal."""
+    codec = _JSON_RECORDS.get(kind)
+    if codec is None:
+        raise TypeError("from_json takes a record class of this module, not %r" % (kind,))
+    r = _Reader(bytes(data))
+    r.ws()
+    v = codec[1](r)
+    r.ws()
+    if r.pos < len(r.buf):
+        raise r.refuse("trailing_bytes")
+    return v
+
+
 # _REFUSALS is in the order two of them are chosen between.
 
-_REFUSALS = ["malformed", "bad_string", "number_spelling", "wrong_type", "bad_timestamp", "depth_exceeded", "duplicate_field", "unknown_field", "missing_field", "bad_schema", "bad_enum", "trailing_bytes"]
+_REFUSALS = ["malformed", "bad_string", "number_spelling", "wrong_type", "bad_timestamp", "depth_exceeded", "duplicate_field", "unknown_field", "missing_field", "bad_schema", "bad_enum", "bad_value", "trailing_bytes"]
 
 
 def _refusal_rank(word):
@@ -3319,6 +3793,8 @@ _SERVICE_RECORDS = {
     "Attestation": (Attestation, [("by", "string", "never"), ("verified", "bool", "never"), ("hop", "i64", "never"), ("program", "string", "zero"), ("host", "string", "zero"), ("user", "string", "zero"), ("exe", "string", "zero"), ("uid", "i64", "never"), ("gid", "i64", "never"), ("pid", "i64", "never"), ("key", "string", "zero"), ("mac", "string", "zero"), ]),
     "Record": (Record, [("schema", "i64", "never"), ("time", "string", "never"), ("level", "i64", "never"), ("msg", "string", "never"), ("identity", "list<Attestation>", "zero"), ("job", "string", "zero"), ("attrs", "map<string,string>", "zero"), ]),
     "Page": (Page, [("outcome", "enum", "never"), ("records", "list<Record>", "never"), ("next", "string", "never"), ("at_end", "bool", "never"), ]),
+    "HistoryUsage": (HistoryUsage, [("retained_bytes", "i64", "never"), ("oldest", "string", "absent"), ("max_use", "i64", "absent"), ("max_retention_ms", "i64", "absent"), ]),
+    "HistoryUsageResult": (HistoryUsageResult, [("outcome", "enum", "never"), ("usage", "HistoryUsage", "absent"), ]),
     "ApplicationLogTarget": (ApplicationLogTarget, [("selection", "enum", "never"), ("program", "string", "absent"), ]),
     "ApplicationLogResource": (ApplicationLogResource, [("program", "string", "never"), ("captured_file_key", "string", "absent"), ]),
     "ApplicationLogPage": (ApplicationLogPage, [("outcome", "enum", "never"), ("records", "list<Record>", "never"), ("next", "string", "never"), ("at_end", "bool", "never"), ]),
@@ -3328,9 +3804,11 @@ _SERVICE_RECORDS = {
     "SourceRecord": (SourceRecord, [("source_id", "string", "never"), ("record", "Record", "never"), ("producer", "ProducerClaim", "absent"), ]),
     "SourcePage": (SourcePage, [("outcome", "enum", "never"), ("records", "list<SourceRecord>", "never"), ("next", "string", "never"), ("at_end", "bool", "never"), ]),
     "OASinkWriteArguments": (_SinkWriteArguments, [("record", "Record", "never"), ]),
+    "OAHistoryReaderUsageArguments": (_HistoryReaderUsageArguments, []),
     "OAHistoryReaderReadArguments": (_HistoryReaderReadArguments, [("cursor", "string", "never"), ("max_records", "i64", "never"), ("max_bytes", "i64", "never"), ]),
     "OAHistoryObserverObserveArguments": (_HistoryObserverObserveArguments, [("cursor", "string", "never"), ("max_records", "i64", "never"), ("max_bytes", "i64", "never"), ("wait_ms", "i64", "never"), ]),
     "OAApplicationHistoryReaderReadArguments": (_ApplicationHistoryReaderReadArguments, [("target", "ApplicationLogTarget", "never"), ("cursor", "string", "never"), ("max_records", "i64", "never"), ("max_bytes", "i64", "never"), ]),
+    "OAApplicationHistoryReaderReadAboutCallerArguments": (_ApplicationHistoryReaderReadAboutCallerArguments, [("since", "string", "never"), ("cursor", "string", "never"), ("max_records", "i64", "never"), ("max_bytes", "i64", "never"), ]),
     "OAApplicationHistoryObserverObserveArguments": (_ApplicationHistoryObserverObserveArguments, [("target", "ApplicationLogTarget", "never"), ("cursor", "string", "never"), ("max_records", "i64", "never"), ("max_bytes", "i64", "never"), ("wait_ms", "i64", "never"), ]),
     "OASourceReaderSourcesArguments": (_SourceReaderSourcesArguments, []),
     "OASourceReaderReadArguments": (_SourceReaderReadArguments, [("source_id", "string", "never"), ("cursor", "string", "never"), ("max_records", "i64", "never"), ("max_bytes", "i64", "never"), ]),
@@ -3338,9 +3816,11 @@ _SERVICE_RECORDS = {
     "OAServiceFrame": (_ServiceFrame, [("version", "i32", "never"), ("service", "string", "never"), ("method", "string", "never"), ("arguments", "json", "never"), ]),
     "OAServiceReply": (_ServiceReply, [("version", "i32", "never"), ("service", "string", "never"), ("method", "string", "never"), ("ok", "bool", "never"), ("payload", "json", "never"), ]),
     "OAServiceError": (_ServiceError, [("code", "string", "never"), ("message", "string", "never"), ]),
+    "OAHistoryReaderUsageResult": (_HistoryReaderUsageResult, [("value", "HistoryUsageResult", "never"), ]),
     "OAHistoryReaderReadResult": (_HistoryReaderReadResult, [("value", "Page", "never"), ]),
     "OAHistoryObserverObserveResult": (_HistoryObserverObserveResult, [("value", "Page", "never"), ]),
     "OAApplicationHistoryReaderReadResult": (_ApplicationHistoryReaderReadResult, [("value", "ApplicationLogPage", "never"), ]),
+    "OAApplicationHistoryReaderReadAboutCallerResult": (_ApplicationHistoryReaderReadAboutCallerResult, [("value", "ApplicationLogPage", "never"), ]),
     "OAApplicationHistoryObserverObserveResult": (_ApplicationHistoryObserverObserveResult, [("value", "ApplicationLogPage", "never"), ]),
     "OASourceReaderSourcesResult": (_SourceReaderSourcesResult, [("value", "SourceCatalog", "never"), ]),
     "OASourceReaderReadResult": (_SourceReaderReadResult, [("value", "SourcePage", "never"), ]),
@@ -3349,7 +3829,8 @@ _SERVICE_RECORDS = {
 
 
 class Sink:
-    """A sink for structured log records across a service boundary."""
+    """[Sink](https://openabstractions.github.io/reference.html#concept-log.sink).
+    A sink for structured log records across a service boundary."""
 
     def write(self, record: Record) -> None:
         """Submit a log record. Completion confirms local transport submission
@@ -3379,6 +3860,16 @@ class HistoryReader:
     records and opaque cursors; history location and retention belong to the
     provider."""
 
+    def usage(self) -> HistoryUsageResult:
+        """Read the retained provider's current physical byte count and effective
+        active budgets under the same native authorization as Read. An absent
+        budget means known unlimited; a present limit of zero is zero. A
+        provider that cannot establish its active budget returns unavailable.
+        oldest is the first retained record's time in append/Read order, absent
+        on empty history. No cleanup authority or file location is exposed. An
+        earlier reader@1 returns unknown_method."""
+        raise NotImplementedError
+
     def read(self, cursor: str, max_records: int, max_bytes: int) -> Page:
         """Read retained records through the service. Empty cursor starts at
         earliest retained history. Cursor end (history_cursor_words) starts at
@@ -3398,6 +3889,17 @@ class HistoryReaderClient(HistoryReader):
 
     def __init__(self, transport):
         self._transport = transport
+
+    def usage(self) -> HistoryUsageResult:
+        _args = _HistoryReaderUsageArguments()
+        _arguments = _service_encode(_write_oa_history_reader_usage_arguments, _args, 1)
+        _service_decode(_read_oa_history_reader_usage_arguments, _arguments, 1)
+        _request = _service_request("abstraction.logging/reader@1", "Usage", _arguments)
+        _payload = _service_response(self._transport.exchange_frame(_request), "abstraction.logging/reader@1", "Usage")
+        _result = _service_decode(_read_oa_history_reader_usage_result, _payload, 1)
+        if (_result.value.outcome == "available") != (_result.value.usage is not None):
+            raise ServiceError("invalid_result", "")
+        return _result.value
 
     def read(self, cursor: str, max_records: int, max_bytes: int) -> Page:
         _service_check("string", cursor)
@@ -3467,6 +3969,18 @@ class ApplicationHistoryReader:
         permitted."""
         raise NotImplementedError
 
+    def read_about_caller(self, since: str, cursor: str, max_records: int, max_bytes: int) -> ApplicationLogPage:
+        """Read the records this receiving runtime wrote about the proven caller's
+        own requests, from since onward: its request records, which name a
+        paired host by its binding name, and its application command audit. The
+        subject is the bound caller and never an argument; records other
+        programs wrote are excluded. Bounds, sealed cursors, gap and outcomes
+        follow Read; the cursor also binds since. Admission is
+        abstraction.logging/history.read on profile
+        abstraction.logging/caller-log@1. An earlier reader@2 service answers
+        unknown_method."""
+        raise NotImplementedError
+
 
 class ApplicationHistoryReaderClient(ApplicationHistoryReader):
     """Calls abstraction.logging/reader@2 through a transport that exchanges frames."""
@@ -3489,6 +4003,23 @@ class ApplicationHistoryReaderClient(ApplicationHistoryReader):
         _request = _service_request("abstraction.logging/reader@2", "Read", _arguments)
         _payload = _service_response(self._transport.exchange_frame(_request), "abstraction.logging/reader@2", "Read")
         _result = _service_decode(_read_oa_application_history_reader_read_result, _payload, 1)
+        return _result.value
+
+    def read_about_caller(self, since: str, cursor: str, max_records: int, max_bytes: int) -> ApplicationLogPage:
+        _service_check("string", since)
+        _service_check("string", cursor)
+        _service_check("i64", max_records)
+        _service_check("i64", max_bytes)
+        _args = _ApplicationHistoryReaderReadAboutCallerArguments()
+        _args.since = since
+        _args.cursor = cursor
+        _args.max_records = max_records
+        _args.max_bytes = max_bytes
+        _arguments = _service_encode(_write_oa_application_history_reader_read_about_caller_arguments, _args, 1)
+        _service_decode(_read_oa_application_history_reader_read_about_caller_arguments, _arguments, 1)
+        _request = _service_request("abstraction.logging/reader@2", "ReadAboutCaller", _arguments)
+        _payload = _service_response(self._transport.exchange_frame(_request), "abstraction.logging/reader@2", "ReadAboutCaller")
+        _result = _service_decode(_read_oa_application_history_reader_read_about_caller_result, _payload, 1)
         return _result.value
 
 
@@ -3617,6 +4148,8 @@ _NAMED_RECORDS = {
     "Attestation": (Attestation, [("by", "string", "never"), ("verified", "bool", "never"), ("hop", "i64", "never"), ("program", "string", "zero"), ("host", "string", "zero"), ("user", "string", "zero"), ("exe", "string", "zero"), ("uid", "i64", "never"), ("gid", "i64", "never"), ("pid", "i64", "never"), ("key", "string", "zero"), ("mac", "string", "zero"), ]),
     "Record": (Record, [("schema", "i64", "never"), ("time", "string", "never"), ("level", "i64", "never"), ("msg", "string", "never"), ("identity", "list<Attestation>", "zero"), ("job", "string", "zero"), ("attrs", "map<string,string>", "zero"), ]),
     "Page": (Page, [("outcome", "enum", "never"), ("records", "list<Record>", "never"), ("next", "string", "never"), ("at_end", "bool", "never"), ]),
+    "HistoryUsage": (HistoryUsage, [("retained_bytes", "i64", "never"), ("oldest", "string", "absent"), ("max_use", "i64", "absent"), ("max_retention_ms", "i64", "absent"), ]),
+    "HistoryUsageResult": (HistoryUsageResult, [("outcome", "enum", "never"), ("usage", "HistoryUsage", "absent"), ]),
     "ApplicationLogTarget": (ApplicationLogTarget, [("selection", "enum", "never"), ("program", "string", "absent"), ]),
     "ApplicationLogResource": (ApplicationLogResource, [("program", "string", "never"), ("captured_file_key", "string", "absent"), ]),
     "ApplicationLogPage": (ApplicationLogPage, [("outcome", "enum", "never"), ("records", "list<Record>", "never"), ("next", "string", "never"), ("at_end", "bool", "never"), ]),
@@ -3689,6 +4222,14 @@ def _check_record(v, depth=0, limit=_DEPTH_LIMIT):
 
 def _check_page(v, depth=0, limit=_DEPTH_LIMIT):
     _named_check("Page", v, depth, min(limit, _DEPTH_LIMIT))
+
+
+def _check_history_usage(v, depth=0, limit=_DEPTH_LIMIT):
+    _named_check("HistoryUsage", v, depth, min(limit, _DEPTH_LIMIT))
+
+
+def _check_history_usage_result(v, depth=0, limit=_DEPTH_LIMIT):
+    _named_check("HistoryUsageResult", v, depth, min(limit, _DEPTH_LIMIT))
 
 
 def _check_application_log_target(v, depth=0, limit=_DEPTH_LIMIT):
@@ -3820,6 +4361,76 @@ def encode_page(v):
 
 def decode_page(data):
     v, n = _decode_page_at(data, 0, _DEPTH_LIMIT)
+    r = _Reader(bytes(data))
+    r.pos = n
+    r.ws()
+    if r.pos != len(r.buf):
+        raise r.refuse("trailing_bytes")
+    return v
+
+
+def _decode_history_usage_at(data, depth, limit):
+    r = _Reader(bytes(data))
+    if depth < 0 or limit < 1:
+        raise r.refuse("depth_exceeded")
+    r.depth = depth
+    r.limit = min(limit, _DEPTH_LIMIT)
+    r.ws()
+    v = _read_history_usage(r)
+    return v, r.pos
+
+
+def _encode_history_usage_at(v, depth):
+    if depth < 0 or depth >= _DEPTH_LIMIT:
+        raise _Reader(b"").refuse("depth_exceeded")
+    _check_history_usage(v, depth, _DEPTH_LIMIT)
+    out = bytearray()
+    _write_history_usage(out, v, depth)
+    _decode_history_usage_at(out, depth, _DEPTH_LIMIT)
+    return bytes(out)
+
+
+def encode_history_usage(v):
+    return _encode_history_usage_at(v, 0) + "\n".encode()
+
+
+def decode_history_usage(data):
+    v, n = _decode_history_usage_at(data, 0, _DEPTH_LIMIT)
+    r = _Reader(bytes(data))
+    r.pos = n
+    r.ws()
+    if r.pos != len(r.buf):
+        raise r.refuse("trailing_bytes")
+    return v
+
+
+def _decode_history_usage_result_at(data, depth, limit):
+    r = _Reader(bytes(data))
+    if depth < 0 or limit < 1:
+        raise r.refuse("depth_exceeded")
+    r.depth = depth
+    r.limit = min(limit, _DEPTH_LIMIT)
+    r.ws()
+    v = _read_history_usage_result(r)
+    return v, r.pos
+
+
+def _encode_history_usage_result_at(v, depth):
+    if depth < 0 or depth >= _DEPTH_LIMIT:
+        raise _Reader(b"").refuse("depth_exceeded")
+    _check_history_usage_result(v, depth, _DEPTH_LIMIT)
+    out = bytearray()
+    _write_history_usage_result(out, v, depth)
+    _decode_history_usage_result_at(out, depth, _DEPTH_LIMIT)
+    return bytes(out)
+
+
+def encode_history_usage_result(v):
+    return _encode_history_usage_result_at(v, 0) + "\n".encode()
+
+
+def decode_history_usage_result(data):
+    v, n = _decode_history_usage_result_at(data, 0, _DEPTH_LIMIT)
     r = _Reader(bytes(data))
     r.pos = n
     r.ws()

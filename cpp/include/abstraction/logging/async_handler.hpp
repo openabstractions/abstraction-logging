@@ -37,7 +37,7 @@
 
 namespace abstraction::logging {
 
-inline constexpr std::string_view kGapMessage = "records dropped while the sink was unreachable";
+inline constexpr std::string_view kGapMessage = kWriterGapMessage;
 
 // A snapshot of an AsyncHandler. Every record handed to write() is exactly one
 // of accepted or dropped; every accepted record ends as exactly one of written,
@@ -54,11 +54,11 @@ struct HandlerCounts {
 };
 
 struct AsyncOptions {
-    std::size_t capacity = 1024;
+    std::size_t capacity = static_cast<std::size_t>(kDefaultAsyncCapacity);
     // Zero or negative leaves deliveries unbounded.
-    std::chrono::milliseconds write_timeout{5000};
-    std::chrono::milliseconds initial_backoff{100};
-    std::chrono::milliseconds max_backoff{5000};
+    std::chrono::milliseconds write_timeout{kDefaultWriteTimeoutMs};
+    std::chrono::milliseconds initial_backoff{kDefaultInitialBackoffMs};
+    std::chrono::milliseconds max_backoff{kDefaultMaxBackoffMs};
     // Names the hop 0 claim of the gap record and of log().
     std::string program;
     std::function<void(std::exception_ptr, const HandlerCounts&)> on_failure;
@@ -73,6 +73,13 @@ public:
 };
 
 namespace async_detail {
+inline constexpr double kBackoffJitter = static_cast<double>(kWriterBackoffJitterPercent) / 100.0;
+
+inline void normalize_options(AsyncOptions& options) {
+    if (options.capacity == 0) options.capacity = static_cast<std::size_t>(kDefaultAsyncCapacity);
+    if (options.initial_backoff.count() <= 0) options.initial_backoff = std::chrono::milliseconds(kDefaultInitialBackoffMs);
+    if (options.max_backoff.count() <= 0) options.max_backoff = std::chrono::milliseconds(kDefaultMaxBackoffMs);
+}
 
 inline std::string message_of(const std::exception_ptr& error) {
     try {
@@ -187,9 +194,7 @@ public:
     explicit AsyncHandler(Writer writer, Rebinder rebind = {}, AsyncOptions options = {})
         : writer_(std::move(writer)), rebind_(std::move(rebind)), options_(std::move(options)) {
         if (!writer_) throw std::invalid_argument("logging: AsyncHandler needs a writer");
-        if (options_.capacity == 0) options_.capacity = 1024;
-        if (options_.initial_backoff.count() <= 0) options_.initial_backoff = std::chrono::milliseconds(100);
-        if (options_.max_backoff.count() <= 0) options_.max_backoff = std::chrono::milliseconds(5000);
+        async_detail::normalize_options(options_);
         if (!options_.on_failure && !options_.on_recovery && !options_.on_overflow) {
             options_.on_failure = [](std::exception_ptr error, const HandlerCounts& c) {
                 async_detail::report("abstraction.logging: service unreachable (" + async_detail::failure_class(error) + "); " +
@@ -474,7 +479,7 @@ private:
         }
         if (options_.on_failure) options_.on_failure(cause, snapshot);
         auto delay = options_.initial_backoff;
-        std::uniform_real_distribution<double> jitter(0.8, 1.2);
+        std::uniform_real_distribution<double> jitter(1.0 - async_detail::kBackoffJitter, 1.0 + async_detail::kBackoffJitter);
         for (;;) {
             {
                 std::unique_lock<std::mutex> lock(mutex_);

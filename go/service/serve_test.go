@@ -30,6 +30,7 @@ func stdoutOf(t *testing.T, f func()) string {
 }
 
 func TestServeHelp(t *testing.T) {
+	t.Setenv(client.EnvEndpoint, "fixture-help-endpoint")
 	out := stdoutOf(t, func() {
 		if err := Serve([]string{"--help"}); err != nil {
 			t.Fatal(err)
@@ -39,7 +40,7 @@ func TestServeHelp(t *testing.T) {
 	if first != "Usage: openabstractions serve logging [options]" {
 		t.Fatalf("first line = %q", first)
 	}
-	if strings.Contains(out, client.DefaultEndpoint()) {
+	if endpoint := client.DefaultEndpoint(); endpoint != "" && strings.Contains(out, endpoint) {
 		t.Fatalf("usage names this machine's resolved endpoint: %s", out)
 	}
 }

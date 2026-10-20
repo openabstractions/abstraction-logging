@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	wire "github.com/openabstractions/abstraction-logging/go/abstraction/logging"
+
+	"github.com/openabstractions/abstraction-facade/go-core/childproc"
 )
 
 const nativeCommandOutputLimit = 8 << 20
@@ -49,7 +51,7 @@ func (protectedCommandRunner) Run(ctx context.Context, name string, args ...stri
 }
 
 func runNativeCommand(ctx context.Context, env []string, name string, args ...string) ([]byte, error) {
-	command := exec.CommandContext(ctx, name, args...)
+	command := childproc.Hidden(exec.CommandContext(ctx, name, args...))
 	command.Env = env
 	stdout := &cappedOutput{limit: nativeCommandOutputLimit}
 	stderr := &cappedOutput{limit: 32 << 10}

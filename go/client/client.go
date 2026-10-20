@@ -5,6 +5,8 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
+	"github.com/openabstractions/abstraction-facade/go-core/bootstrap"
 	"os"
 	"time"
 
@@ -24,29 +26,57 @@ const EnvEndpoint = "ABSTRACTION_LOG_ENDPOINT"
 const DefaultTimeout = 2 * time.Second
 
 type Record = wire.Record
+type HistoryUsage = wire.HistoryUsage
+type HistoryUsageOutcome = wire.HistoryUsageOutcome
+type HistoryUsageResult = wire.HistoryUsageResult
+
+func HistoryUsageOutcomeValues() []HistoryUsageOutcome { return wire.HistoryUsageOutcomeValues() }
 
 type Client struct {
 	transport listen.FrameClient
+	initErr   error
 }
 
 // DefaultEndpoint resolves the service endpoint without opening a file or
 // starting a provider. Availability is reported by the actual operation.
-func DefaultEndpoint() string {
+// DefaultEndpoint returns empty when the account namespace cannot be resolved.
+func DefaultEndpoint() string { endpoint, _ := checkedDefaultEndpoint(); return endpoint }
+func checkedDefaultEndpoint() (string, error) {
 	if endpoint := os.Getenv(EnvEndpoint); endpoint != "" {
-		return endpoint
+		return endpoint, nil
 	}
-	return listen.Endpoint("logging-v1")
+	return bootstrap.InstalledEndpoint("logging-v1")
+}
+func emptyEndpointError() error {
+	_, err := checkedDefaultEndpoint()
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("logging: empty endpoint")
 }
 
-func Discover() *Client { return New(DefaultEndpoint()) }
+func Discover() *Client {
+	endpoint, err := checkedDefaultEndpoint()
+	c := New(endpoint)
+	c.initErr = err
+	return c
+}
 
 func New(endpoint string) *Client {
-	return NewWithTransport(listen.FrameClient{Endpoint: endpoint})
+	c := NewWithTransport(listen.FrameClient{Endpoint: endpoint})
+	if endpoint == "" {
+		c.initErr = emptyEndpointError()
+	}
+	return c
 }
 
 // NewWithTransport retains the caller's endpoint, server trust and waiting limits.
 func NewWithTransport(transport listen.FrameClient) *Client {
-	return &Client{transport: transport.WithDefaults(DefaultTimeout, 1<<20)}
+	c := &Client{transport: transport.WithDefaults(DefaultTimeout, 1<<20)}
+	if transport.Endpoint == "" && transport.Dialer == nil {
+		c.initErr = emptyEndpointError()
+	}
+	return c
 }
 
 // Write submits a schema-defined record. Success is not a persistence receipt.
@@ -56,6 +86,9 @@ func (c *Client) Write(record Record) error {
 
 // WriteContext bounds submission waiting; timeout leaves delivery unresolved.
 func (c *Client) WriteContext(ctx context.Context, record Record) error {
+	if c.initErr != nil {
+		return c.initErr
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -69,26 +102,40 @@ func (c *Client) Log(level int64, message string, attrs map[string]string) error
 
 // LogContext supplies metadata and uses the caller waiting context.
 func (c *Client) LogContext(ctx context.Context, level int64, message string, attrs map[string]string) error {
-	return c.WriteContext(ctx, Record{Schema: 1, Time: time.Now().UTC().Format("2006-01-02T15:04:05.000000Z"),
+	return c.WriteContext(ctx, Record{Schema: 1, Time: wire.FormatTimestamp(time.Now()),
 		Level: level, Msg: message, Attrs: attrs,
 		Identity: []wire.Attestation{{By: "self", UID: -1, GID: -1, PID: -1}}})
 }
 
 // Reader binds only the generated history interface.
-type Reader struct{ transport listen.FrameClient }
+type Reader struct {
+	transport listen.FrameClient
+	initErr   error
+}
 
 func NewReader(endpoint string) *Reader {
-	return NewReaderWithTransport(listen.FrameClient{Endpoint: endpoint})
+	c := NewReaderWithTransport(listen.FrameClient{Endpoint: endpoint})
+	if endpoint == "" {
+		c.initErr = emptyEndpointError()
+	}
+	return c
 }
 
 // NewReaderWithTransport retains the caller's endpoint, server trust and waiting limits.
 func NewReaderWithTransport(transport listen.FrameClient) *Reader {
-	return &Reader{transport: transport.WithDefaults(DefaultTimeout, 1<<20)}
+	c := &Reader{transport: transport.WithDefaults(DefaultTimeout, 1<<20)}
+	if transport.Endpoint == "" && transport.Dialer == nil {
+		c.initErr = emptyEndpointError()
+	}
+	return c
 }
 
 // ReadContext returns bounded retained history with opaque continuation state.
 // A gap requires the application to explicitly choose a fresh empty cursor.
 func (c *Reader) ReadContext(ctx context.Context, cursor string, maxRecords, maxBytes int64) (wire.Page, error) {
+	if c.initErr != nil {
+		return wire.Page{}, c.initErr
+	}
 	if err := ctx.Err(); err != nil {
 		return wire.Page{}, err
 	}
@@ -97,6 +144,18 @@ func (c *Reader) ReadContext(ctx context.Context, cursor string, maxRecords, max
 		return wire.Page{}, err
 	}
 	return validateHistoryPage(page, cursor, maxRecords, maxBytes)
+}
+
+// UsageContext reads the provider's effective retained-history usage through
+// the same native boundary as Read. Older providers may return unknown_method.
+func (c *Reader) UsageContext(ctx context.Context) (wire.HistoryUsageResult, error) {
+	if c.initErr != nil {
+		return wire.HistoryUsageResult{}, c.initErr
+	}
+	if err := ctx.Err(); err != nil {
+		return wire.HistoryUsageResult{}, err
+	}
+	return wire.NewHistoryReaderClient(c.transport.WithContext(ctx)).Usage()
 }
 
 func validateHistoryPage(page wire.Page, cursor string, maxRecords, maxBytes int64) (wire.Page, error) {

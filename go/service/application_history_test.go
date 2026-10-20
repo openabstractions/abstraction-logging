@@ -10,10 +10,12 @@ import (
 	logging "github.com/openabstractions/abstraction-logging/go"
 	wire "github.com/openabstractions/abstraction-logging/go/abstraction/logging"
 	client "github.com/openabstractions/abstraction-logging/go/client"
+	watch "github.com/openabstractions/abstraction-watch/go"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,12 +29,16 @@ func applicationTestHost(t *testing.T, policy ApplicationHistoryPolicy) (*loggin
 	return sink, client.NewApplicationReader(ep), client.NewApplicationObserver(ep), account
 }
 func applicationTestHostAt(t *testing.T, policy ApplicationHistoryPolicy) (*logging.FileSink, string, *Host, string) {
+	sink, ep, host, account, _ := applicationTestHostAtPath(t, policy, filepath.Join(t.TempDir(), "rows"))
+	return sink, ep, host, account
+}
+func applicationTestHostAtPath(t *testing.T, policy ApplicationHistoryPolicy, path string) (*logging.FileSink, string, *Host, string, func()) {
 	t.Helper()
 	account, err := user.Current()
 	if err != nil {
 		t.Fatal(err)
 	}
-	sink, err := logging.OpenRetainedFileSink(filepath.Join(t.TempDir(), "rows"), logging.LogsRetention{MaxUse: 8 << 20})
+	sink, err := logging.OpenRetainedFileSink(path, logging.LogsRetention{MaxUse: 8 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,19 +61,23 @@ func applicationTestHostAt(t *testing.T, policy ApplicationHistoryPolicy) (*logg
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- h.Serve(ctx) }()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Error(err)
+	var stopped sync.Once
+	stop := func() {
+		stopped.Do(func() {
+			cancel()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Error(err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Error("application host did not stop")
 			}
-		case <-time.After(3 * time.Second):
-			t.Error("application host did not stop")
-		}
-		sink.Close()
-	})
-	return sink, ep, h, account.Uid
+			sink.Close()
+		})
+	}
+	t.Cleanup(stop)
+	return sink, ep, h, account.Uid, stop
 }
 func appRecord(message string) logging.Record {
 	return logging.Record{Schema: 1, Time: logging.Timestamp{Time: time.Now().UTC()}, Msg: message}
@@ -90,6 +100,56 @@ func appWrite(t *testing.T, s *logging.FileSink, account, program, message strin
 	}
 	if err := s.WriteAttributed(appRecord(message), logging.Emitter{Version: 1, Account: account, Program: resource.Program, Key: resource.CapturedFileKey}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestApplicationHistoryExactOversizedHiddenRowsKeepCursor(t *testing.T) {
+	selected := identity.NormalizeSubjectProgram(filepath.Join(t.TempDir(), "selected"))
+	hidden := identity.NormalizeSubjectProgram(filepath.Join(t.TempDir(), "hidden"))
+	policy := appPermit()
+	policy.Check = func(_ context.Context, _ *identity.Peer, q ApplicationHistoryQuery) ([]bool, error) {
+		permit := make([]bool, len(q.Emitters))
+		for i, e := range q.Emitters {
+			permit[i] = e.Program == selected
+		}
+		return permit, nil
+	}
+	s, r, _, account := applicationTestHost(t, policy)
+	e := logging.Emitter{Version: 1, Account: account, Program: hidden}
+	large := appRecord("hidden audit")
+	large.Attrs = map[string]string{"call_record": strings.Repeat("x", 200000)}
+	for i := 0; i < 7; i++ {
+		if err := s.WriteAttributedExact(large, e, logging.MaxHistoryScanBytes); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appWrite(t, s, account, selected, "visible")
+	target := wire.ApplicationLogTarget{Selection: wire.ApplicationLogSelectionAllApps}
+	first, err := r.ReadContext(context.Background(), target, "", 1, 65536)
+	if err != nil || first.Outcome != wire.HistoryPageOutcomePage || len(first.Records) != 0 || first.AtEnd || first.Next == "" {
+		t.Fatalf("hidden physical progress: %+v %v", first, err)
+	}
+	second, err := r.ReadContext(context.Background(), target, first.Next, 1, 65536)
+	if err != nil || second.Outcome != wire.HistoryPageOutcomePage || len(second.Records) != 1 || second.Records[0].Msg != "visible" || !second.AtEnd {
+		t.Fatalf("filtered continuation: %+v %v", second, err)
+	}
+}
+
+func TestApplicationHistoryExactIncludedOversizedRowRefusesPublicBudget(t *testing.T) {
+	for _, size := range []int{200000, logging.MaxHistoryScanBytes + 1} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			s, r, _, account := applicationTestHost(t, appPermit())
+			e := logging.Emitter{Version: 1, Account: account, Program: identity.NormalizeSubjectProgram(filepath.Join(t.TempDir(), "app"))}
+			row := appRecord("audit")
+			row.Attrs = map[string]string{"call_record": strings.Repeat("x", size)}
+			if err := s.WriteAttributedExact(row, e, 2*logging.MaxHistoryScanBytes); err != nil {
+				t.Fatal(err)
+			}
+			p, err := r.ReadContext(context.Background(), wire.ApplicationLogTarget{Selection: wire.ApplicationLogSelectionAllApps}, "", 256, 65536)
+			if err != nil || p.Outcome != wire.HistoryPageOutcomeRecordTooLarge || len(p.Records) != 0 || p.AtEnd || p.Next != "" {
+				t.Fatalf("published availability bound: %+v %v", p, err)
+			}
+		})
 	}
 }
 
@@ -269,6 +329,7 @@ func (w forgedAppStampWriter) WriteFrame(frame []byte) error {
 		return err
 	}
 	record["_oa_emitter"] = json.RawMessage(`{"version":1,"account":"forged-account","program":"forged-program"}`)
+	record["_oa_subject"] = json.RawMessage(`"C:\\forged\\caller.exe"`)
 	encoded, err := json.Marshal(record)
 	if err != nil {
 		return err
@@ -312,8 +373,8 @@ func TestApplicationSinkStampComesOnlyFromNativeReceivingPeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !identity.SameSubjectProgram(rows[0].Emitter.Program, image) {
-		t.Fatalf("caller controls emitter: %+v", rows[0].Emitter)
+	if !identity.SameSubjectProgram(rows[0].Emitter.Program, image) || rows[0].Emitter.Subject != "" {
+		t.Fatalf("caller controls emitter or subject: %+v", rows[0].Emitter)
 	}
 	if len(rows[0].Record.Identity) == 0 || rows[0].Record.Identity[0].Exe != "forged-exe" {
 		t.Fatal("submitted claim was lost")
@@ -334,10 +395,10 @@ func TestApplicationObserverDisconnectReleasesCapacity(t *testing.T) {
 		done <- err
 	}()
 	deadline := time.Now().Add(2 * time.Second)
-	for len(h.observers) == 0 && time.Now().Before(deadline) {
+	for gateOf(h).Waiting() == 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	if len(h.observers) != 1 {
+	if gateOf(h).Waiting() != 1 {
 		t.Fatal("observer did not wait")
 	}
 	cancel()
@@ -345,10 +406,34 @@ func TestApplicationObserverDisconnectReleasesCapacity(t *testing.T) {
 		t.Fatalf("cancel: %v", err)
 	}
 	deadline = time.Now().Add(2 * time.Second)
-	for (len(h.observers) != 0 || len(h.calls) != 0) && time.Now().Before(deadline) {
+	for (gateOf(h).Waiting() != 0 || len(h.calls) != 0) && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	if len(h.observers) != 0 || len(h.calls) != 0 {
-		t.Fatalf("disconnected call retained slots: observers=%d calls=%d", len(h.observers), len(h.calls))
+	if gateOf(h).Waiting() != 0 || len(h.calls) != 0 {
+		t.Fatalf("disconnected call retained slots: observers=%d calls=%d", gateOf(h).Waiting(), len(h.calls))
+	}
+}
+
+func gateOf(h *Host) *watch.Gate {
+	return h.out.(interface{ HistoryGate() *watch.Gate }).HistoryGate()
+}
+
+// A peer whose user is unproven is told a native account is required, also
+// when the Peer was built outside identity and its attributes carry no name.
+func TestApplicationSubjectUnprovenUser(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		peer    *identity.Peer
+		code    wire.ServiceErrorCode
+		message string
+	}{
+		{"no peer", nil, "caller_unavailable", "caller identity unavailable"},
+		{"zero peer", &identity.Peer{}, "identity_required", "native account required"},
+	} {
+		account, program, err := applicationSubject(c.peer, "owner")
+		var refusal *wire.ServiceError
+		if !errors.As(err, &refusal) || refusal.Code != c.code || refusal.Message != c.message || account != "" || program != "" {
+			t.Errorf("%s: applicationSubject = %q, %q, %v; want %s %q", c.name, account, program, err, c.code, c.message)
+		}
 	}
 }

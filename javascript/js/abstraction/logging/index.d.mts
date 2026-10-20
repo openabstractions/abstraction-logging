@@ -20,6 +20,8 @@ export declare class ApplicationHistoryReaderClient {
   constructor(transport: FrameTransport);
   /** Read one or all emitting programs. Bounds are 1..256 returned records and 1..65536 encoded Record bytes; scan work is independently bounded. Empty cursor starts earliest retained history; end fixes the current physical end. One consistent Rights snapshot governs selection and concrete outgoing emitters. No fallback to account-wide reader@1 is permitted. */
   read(target: ApplicationLogTarget, cursor: string, maxRecords: bigint, maxBytes: bigint): Promise<ApplicationLogPage>;
+  /** Read the records this receiving runtime wrote about the proven caller's own requests, from since onward: its request records, which name a paired host by its binding name, and its application command audit. The subject is the bound caller and never an argument; records other programs wrote are excluded. Bounds, sealed cursors, gap and outcomes follow Read; the cursor also binds since. Admission is abstraction.logging/history.read on profile abstraction.logging/caller-log@1. An earlier reader@2 service answers unknown_method. */
+  readAboutCaller(since: string, cursor: string, maxRecords: bigint, maxBytes: bigint): Promise<ApplicationLogPage>;
 }
 
 export declare const ApplicationHistoryReaderService: Readonly<{ wireName: "abstraction.logging/reader@2"; Client: typeof ApplicationHistoryReaderClient }>;
@@ -96,11 +98,52 @@ export declare const HistoryPageOutcome: Readonly<{ Page: "page"; Gap: "gap"; Un
 /** Authorized bounded access to retained logging history. Applications receive records and opaque cursors; history location and retention belong to the provider. */
 export declare class HistoryReaderClient {
   constructor(transport: FrameTransport);
+  /** Read the retained provider's current physical byte count and effective active budgets under the same native authorization as Read. An absent budget means known unlimited; a present limit of zero is zero. A provider that cannot establish its active budget returns unavailable. oldest is the first retained record's time in append/Read order, absent on empty history. No cleanup authority or file location is exposed. An earlier reader@1 returns unknown_method. */
+  usage(): Promise<HistoryUsageResult>;
   /** Read retained records through the service. Empty cursor starts at earliest retained history. Cursor end (history_cursor_words) starts at the current end: the page holds no records, at_end is true and next continues from that end. Limits are 1..256 records and 1..65536 encoded-record bytes; a first record that exceeds the byte limit gives record_too_large. A provider without history gives unavailable. Cursors may expire on restart or retention changes, reported as gap. Snapshot reads may be repeated at end; this method promises no subscription or persistence acknowledgement. The receiving service authorizes history access from native caller evidence. */
   read(cursor: string, maxRecords: bigint, maxBytes: bigint): Promise<Page>;
 }
 
 export declare const HistoryReaderService: Readonly<{ wireName: "abstraction.logging/reader@1"; Client: typeof HistoryReaderClient }>;
+
+// A snapshot of retained history bytes and effective provider budgets. max_use
+// is bytes; max_retention_ms is milliseconds. An absent limit is known
+// unlimited; a present value of zero is zero. Unknown budgets make Usage
+// unavailable. Absent oldest means empty history. oldest follows append order,
+// not timestamp sorting.
+export interface HistoryUsage {
+  retainedBytes: bigint;
+  oldest: string;
+  maxUse: bigint | undefined;
+  maxRetentionMs: bigint | undefined;
+}
+
+export type HistoryUsageOutcome = (typeof HistoryUsageOutcome)[keyof typeof HistoryUsageOutcome];
+export declare const HistoryUsageOutcome: Readonly<{ Available: "available"; Unavailable: "unavailable"; Corrupt: "corrupt"; Forbidden: "forbidden"; Invalid: "invalid" }>;
+
+// usage is present exactly for available; unavailable and corrupt expose no
+// usage snapshot.
+export interface HistoryUsageResult {
+  outcome: HistoryUsageOutcome;
+  usage: HistoryUsage | null;
+}
+
+// JsonRecords maps each record name toJson and fromJson take to its type.
+export interface JsonRecords {
+  Attestation: Attestation;
+  Record: Record;
+  Page: Page;
+  HistoryUsage: HistoryUsage;
+  HistoryUsageResult: HistoryUsageResult;
+  ApplicationLogTarget: ApplicationLogTarget;
+  ApplicationLogResource: ApplicationLogResource;
+  ApplicationLogPage: ApplicationLogPage;
+  SourceDescriptor: SourceDescriptor;
+  SourceCatalog: SourceCatalog;
+  ProducerClaim: ProducerClaim;
+  SourceRecord: SourceRecord;
+  SourcePage: SourcePage;
+}
 
 // A bounded page in provider append order. next is an opaque continuation bound
 // to this history instance. at_end means the observed end during this call;
@@ -129,6 +172,7 @@ export interface ProducerClaim {
   gid: bigint;
 }
 
+// [Record](https://openabstractions.github.io/reference.html#concept-log.record)
 export interface Record {
   schema: bigint;
   time: string;
@@ -141,7 +185,7 @@ export interface Record {
 
 export declare class Refusal extends Error {
   constructor(word: string, offset: number);
-  word: "malformed" | "bad_string" | "number_spelling" | "wrong_type" | "bad_timestamp" | "depth_exceeded" | "duplicate_field" | "unknown_field" | "missing_field" | "bad_schema" | "bad_enum" | "trailing_bytes";
+  word: "malformed" | "bad_string" | "number_spelling" | "wrong_type" | "bad_timestamp" | "depth_exceeded" | "duplicate_field" | "unknown_field" | "missing_field" | "bad_schema" | "bad_enum" | "bad_value" | "trailing_bytes";
   offset: number;
 }
 
@@ -153,7 +197,7 @@ export declare class ServiceError extends Error {
 export type ServiceErrorCode = (typeof ServiceErrorCode)[keyof typeof ServiceErrorCode];
 export declare const ServiceErrorCode: Readonly<{ HandlerError: "handler_error"; InvalidResult: "invalid_result"; UnknownVersion: "unknown_version"; UnknownService: "unknown_service"; UnknownMethod: "unknown_method"; WrongMode: "wrong_mode"; CallerUnavailable: "caller_unavailable"; IdentityRequired: "identity_required"; WrongUser: "wrong_user"; PolicyUnavailable: "policy_unavailable"; Forbidden: "forbidden" }>;
 
-/** A sink for structured log records across a service boundary. */
+/** [Sink](https://openabstractions.github.io/reference.html#concept-log.sink). A sink for structured log records across a service boundary. */
 export declare class SinkClient {
   constructor(transport: FrameTransport);
   /** Submit a log record. Completion confirms local transport submission only. */
@@ -229,6 +273,10 @@ export declare function decodeApplicationLogTarget(data: Uint8Array): Applicatio
 
 export declare function decodeAttestation(data: Uint8Array): Attestation;
 
+export declare function decodeHistoryUsage(data: Uint8Array): HistoryUsage;
+
+export declare function decodeHistoryUsageResult(data: Uint8Array): HistoryUsageResult;
+
 export declare function decodePage(data: Uint8Array): Page;
 
 export declare function decodeProducerClaim(data: Uint8Array): ProducerClaim;
@@ -243,6 +291,14 @@ export declare function decodeSourcePage(data: Uint8Array): SourcePage;
 
 export declare function decodeSourceRecord(data: Uint8Array): SourceRecord;
 
+export declare const defaultAsyncCapacity: number;
+
+export declare const defaultInitialBackoffMs: number;
+
+export declare const defaultMaxBackoffMs: number;
+
+export declare const defaultWriteTimeoutMs: number;
+
 export declare function encode(v: Record): Uint8Array;
 
 export declare function encodeApplicationLogPage(v: ApplicationLogPage): Uint8Array;
@@ -252,6 +308,10 @@ export declare function encodeApplicationLogResource(v: ApplicationLogResource):
 export declare function encodeApplicationLogTarget(v: ApplicationLogTarget): Uint8Array;
 
 export declare function encodeAttestation(v: Attestation): Uint8Array;
+
+export declare function encodeHistoryUsage(v: HistoryUsage): Uint8Array;
+
+export declare function encodeHistoryUsageResult(v: HistoryUsageResult): Uint8Array;
 
 export declare function encodePage(v: Page): Uint8Array;
 
@@ -267,6 +327,8 @@ export declare function encodeSourcePage(v: SourcePage): Uint8Array;
 
 export declare function encodeSourceRecord(v: SourceRecord): Uint8Array;
 
+export declare const fromJson: <K extends keyof JsonRecords>(kind: K, data: Uint8Array) => JsonRecords[K];
+
 export declare const historyCursorWords: readonly ["end"];
 
 export declare const historyErrorCodes: readonly ["caller_unavailable", "identity_required", "wrong_user", "policy_unavailable", "forbidden"];
@@ -281,6 +343,10 @@ export declare function newApplicationLogTarget(): ApplicationLogTarget;
 
 export declare function newAttestation(): Attestation;
 
+export declare function newHistoryUsage(): HistoryUsage;
+
+export declare function newHistoryUsageResult(): HistoryUsageResult;
+
 export declare function newPage(): Page;
 
 export declare function newProducerClaim(): ProducerClaim;
@@ -294,5 +360,11 @@ export declare function newSourceDescriptor(): SourceDescriptor;
 export declare function newSourcePage(): SourcePage;
 
 export declare function newSourceRecord(): SourceRecord;
+
+export declare const toJson: <K extends keyof JsonRecords>(kind: K, value: JsonRecords[K]) => Uint8Array;
+
+export declare const writerBackoffJitterPercent: number;
+
+export declare const writerGapMessage: string;
 
 export {};

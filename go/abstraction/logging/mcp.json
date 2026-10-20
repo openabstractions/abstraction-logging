@@ -1,0 +1,74 @@
+{
+  "methods": [
+    {
+      "class": "effect",
+      "contract": "abstraction.logging/sink@1",
+      "idempotency_key": "",
+      "method": "Write",
+      "trait": ""
+    },
+    {
+      "class": "read",
+      "contract": "abstraction.logging/reader@1",
+      "idempotency_key": "",
+      "method": "Usage",
+      "trait": "readonly"
+    },
+    {
+      "class": "read",
+      "contract": "abstraction.logging/reader@1",
+      "idempotency_key": "",
+      "method": "Read",
+      "trait": "readonly"
+    },
+    {
+      "class": "read",
+      "contract": "abstraction.logging/observer@1",
+      "idempotency_key": "",
+      "method": "Observe",
+      "trait": "readonly"
+    },
+    {
+      "class": "read",
+      "contract": "abstraction.logging/reader@2",
+      "idempotency_key": "",
+      "method": "Read",
+      "trait": "readonly"
+    },
+    {
+      "class": "read",
+      "contract": "abstraction.logging/reader@2",
+      "idempotency_key": "",
+      "method": "ReadAboutCaller",
+      "trait": "readonly"
+    },
+    {
+      "class": "read",
+      "contract": "abstraction.logging/observer@2",
+      "idempotency_key": "",
+      "method": "Observe",
+      "trait": "readonly"
+    },
+    {
+      "class": "read",
+      "contract": "abstraction.logging/source-reader@1",
+      "idempotency_key": "",
+      "method": "Sources",
+      "trait": "readonly"
+    },
+    {
+      "class": "read",
+      "contract": "abstraction.logging/source-reader@1",
+      "idempotency_key": "",
+      "method": "Read",
+      "trait": "readonly"
+    },
+    {
+      "class": "read",
+      "contract": "abstraction.logging/source-reader@1",
+      "idempotency_key": "",
+      "method": "StartAtEnd",
+      "trait": "readonly"
+    }
+  ]
+}

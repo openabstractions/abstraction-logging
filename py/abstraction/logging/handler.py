@@ -52,13 +52,13 @@ from collections import namedtuple
 import abstraction.logging as rec
 
 DEFAULT_MAX_MESSAGE_BYTES = 16384
-DEFAULT_CAPACITY = 1024
-DEFAULT_WRITE_TIMEOUT = 5.0
-DEFAULT_INITIAL_BACKOFF = 0.1
-DEFAULT_MAX_BACKOFF = 5.0
+DEFAULT_CAPACITY = rec.DEFAULT_ASYNC_CAPACITY
+DEFAULT_WRITE_TIMEOUT = rec.DEFAULT_WRITE_TIMEOUT_MS / 1000.0
+DEFAULT_INITIAL_BACKOFF = rec.DEFAULT_INITIAL_BACKOFF_MS / 1000.0
+DEFAULT_MAX_BACKOFF = rec.DEFAULT_MAX_BACKOFF_MS / 1000.0
 DEFAULT_CLOSE_TIMEOUT = 5.0
-BACKOFF_JITTER = 0.2
-GAP_MESSAGE = "records dropped while the sink was unreachable"
+BACKOFF_JITTER = rec.WRITER_BACKOFF_JITTER_PERCENT / 100.0
+GAP_MESSAGE = rec.WRITER_GAP_MESSAGE
 UNKNOWN = -1
 SELF = "self"
 WARN = 4
@@ -503,16 +503,20 @@ class ServiceHandler(logging.Handler):
             self._overflowing = False
 
 
-def resolved_handler(machine_factory=None, *, program="", scope="local", **options):
+def resolved_handler(machine_factory=None, *, program="", scope=None, **options):
     """Resolve abstraction.logging/sink@1 now and return a ServiceHandler that
     rebinds through the same resolution [LOG-S11, LOG-S12].
 
     machine_factory returns an object with resolve_log(); the default is
     abstraction.facade.client.Machine, whose default discovery selects the
-    installed runtime again at each rebind. The resolution error of an absent
-    service is raised here, and no handler is made."""
+    installed runtime again at each rebind. scope is an
+    abstraction.facade.Scope and defaults to Scope.LOCAL. The resolution error
+    of an absent service is raised here, and no handler is made."""
     if machine_factory is None:
         from abstraction.facade.client import Machine as machine_factory
+    if scope is None:
+        from abstraction.facade import Scope
+        scope = Scope.LOCAL
 
     def resolve():
         return machine_factory().resolve_log(scope=scope)

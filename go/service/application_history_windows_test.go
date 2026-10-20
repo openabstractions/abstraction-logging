@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/openabstractions/abstraction-identity/placetest"
 	logging "github.com/openabstractions/abstraction-logging/go"
 	wire "github.com/openabstractions/abstraction-logging/go/abstraction/logging"
-	"golang.org/x/sys/windows"
 )
 
 func TestApplicationHistoryFixtureCapturesShortAlias(t *testing.T) {
@@ -16,21 +16,13 @@ func TestApplicationHistoryFixtureCapturesShortAlias(t *testing.T) {
 	if err := os.Mkdir(folder, 0700); err != nil {
 		t.Fatal(err)
 	}
-	ptr, err := windows.UTF16PtrFromString(folder)
+	short, err := placetest.ShortName(folder)
 	if err != nil {
-		t.Fatal(err)
-	}
-	buf := make([]uint16, windows.MAX_LONG_PATH)
-	n, err := windows.GetShortPathName(ptr, &buf[0], uint32(len(buf)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n == 0 || n >= uint32(len(buf)) {
-		t.Fatal("short path did not fit")
+		t.Skip("filesystem provides no distinct resolvable DOS alias: " + err.Error())
 	}
 	// The image is deliberately absent: there is no file key to hide a
 	// mismatch between the raw DOS alias and the captured canonical name.
-	program := filepath.Join(windows.UTF16ToString(buf[:n]), "not-installed.exe")
+	program := filepath.Join(short, "not-installed.exe")
 	captured, err := logging.PrepareApplicationResource(program)
 	if err != nil {
 		t.Fatal(err)
