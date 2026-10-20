@@ -3,11 +3,13 @@ package logging
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/openabstractions/abstraction-identity/listen"
 	"io/fs"
 	"log/slog"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/openabstractions/abstraction-facade/go-core/bootstrap"
@@ -32,7 +34,26 @@ type resolvedSink struct {
 	// explicit marks a resolver endpoint the application named. A resolution
 	// error then looks for "the explicit endpoint <endpoint>".
 	explicit bool
+	// everBound is set by the first successful binding.
+	everBound atomic.Bool
+	act       activation
 }
+
+// activation is the background start of a stopped installed runtime. At most
+// one runs at a time, and a failed one is remembered: no new start begins
+// before retryAt, whose wait doubles from activationRetry up to
+// activationRetryMax.
+type activation struct {
+	mu      sync.Mutex
+	running chan struct{} // closed when the start in flight returns
+	err     error         // the last start's result
+	retryAt time.Time
+	delay   time.Duration
+}
+
+// activationRetry and activationRetryMax bound how often a runtime that fails
+// to start is started again.
+var activationRetry, activationRetryMax = 5 * time.Second, time.Minute
 
 // NewResolvedHandler returns a handler that resolves abstraction.logging/sink@1
 // lazily through the explicit endpoint, trusting it by server. Handle or an
@@ -42,7 +63,7 @@ type resolvedSink struct {
 // endpoint <endpoint>". The selected logging binding is retained after
 // resolution. Handle exposes waiting and trust errors; slog.Logger normally
 // discards them.
-func NewResolvedHandler(program, endpoint string, server listen.ServerExpectation) slog.Handler {
+func NewResolvedHandler(program, endpoint string, server listen.ServerExpectation) *Handler {
 	return newAdoptedHandler(resolvedSinkFor(endpoint, server), &Options{Program: program})
 }
 
@@ -63,9 +84,9 @@ func (s *resolvedSink) Rebind(ctx context.Context) error {
 }
 
 // bind resolves within ctx. When default discovery finds the installed
-// runtime's resolver endpoint absent, it starts that runtime once within the
-// caller's budget (bootstrap.DefaultActivationBudget without a deadline) and
-// asks again within 2 s.
+// runtime's resolver endpoint absent, it starts that runtime in the background
+// (see activation), waits for the start within caller, and asks again within
+// 2 s.
 func (s *resolvedSink) bind(caller, ctx context.Context, again bool) (*client.Client, error) {
 	select {
 	case s.gate <- struct{}{}:
@@ -102,12 +123,7 @@ func (s *resolvedSink) bind(caller, ctx context.Context, again bool) (*client.Cl
 	request := facade.ResolveRequest{Capability: capability, Contracts: []string{contract}, Scope: facade.ScopeLocal}
 	result, err := resolver.Resolve(ctx, request)
 	if err != nil && activate != nil && caller.Err() == nil && errors.Is(err, fs.ErrNotExist) && !errors.Is(err, listen.ErrServerUntrusted) {
-		budget, cancelBudget := caller, context.CancelFunc(func() {})
-		if _, ok := caller.Deadline(); !ok {
-			budget, cancelBudget = context.WithTimeout(caller, bootstrap.DefaultActivationBudget)
-		}
-		activation := activate(budget, selected)
-		cancelBudget()
+		activation := s.activation(caller, activate, selected)
 		if errors.Is(activation, bootstrap.ErrUpgradeInProgress) {
 			return nil, &ResolutionError{Status: resolution.UpgradeInProgress, Capability: capability, Contract: contract, LookedFor: lookedFor, Err: activation}
 		}
@@ -135,7 +151,51 @@ func (s *resolvedSink) bind(caller, ctx context.Context, again bool) (*client.Cl
 		return nil, err
 	}
 	s.bound = client.NewWithTransport(transport)
+	s.everBound.Store(true)
 	return s.bound, nil
+}
+
+// activation starts the selected runtime in the background within
+// bootstrap.DefaultActivationBudget, or joins the start in flight, and waits
+// for it within caller. A caller that stops waiting leaves the start running
+// for the next binding. After a failed start it starts nothing until the retry
+// time and returns that failure.
+func (s *resolvedSink) activation(caller context.Context, activate func(context.Context, bootstrap.Selection) error, selected bootstrap.Selection) error {
+	s.act.mu.Lock()
+	done := s.act.running
+	if done == nil {
+		if s.act.err != nil && time.Now().Before(s.act.retryAt) {
+			err := s.act.err
+			s.act.mu.Unlock()
+			return err
+		}
+		done = make(chan struct{})
+		s.act.running = done
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), bootstrap.DefaultActivationBudget)
+			err := activate(ctx, selected)
+			cancel()
+			s.act.mu.Lock()
+			s.act.running, s.act.err = nil, err
+			if err == nil {
+				s.act.delay = 0
+			} else {
+				s.act.delay = min(max(2*s.act.delay, activationRetry), activationRetryMax)
+				s.act.retryAt = time.Now().Add(s.act.delay)
+			}
+			s.act.mu.Unlock()
+			close(done)
+		}()
+	}
+	s.act.mu.Unlock()
+	select {
+	case <-done:
+	case <-caller.Done():
+		return fmt.Errorf("runtime activation still in progress: %w", caller.Err())
+	}
+	s.act.mu.Lock()
+	defer s.act.mu.Unlock()
+	return s.act.err
 }
 
 // WriteContext binds within 2 s of ctx, plus an activation's own budget, and
@@ -152,15 +212,23 @@ func (s *resolvedSink) WriteContext(ctx context.Context, r Record) error {
 	return clientSink{client: c}.WriteContext(ctx, r)
 }
 
-// adoptedSink is the sink under Default, Resolve and NewResolvedHandler. Until
-// its first binding, each write resolves synchronously and an absent service
-// is that write's resolution error [LOG-S11]. Once bound, records go through an
-// AsyncSink that retries and rebinds when the service disappears [LOG-S12].
+// adoptedSink is the sink under Default, Resolve and NewResolvedHandler. Every
+// record goes into an AsyncSink from the first write, so a log statement never
+// waits on resolution or on the runtime's start. The delivery goroutine binds,
+// starts a stopped installed runtime, and retries with backoff while the
+// service is absent; the queue keeps up to its capacity meanwhile [LOG-S11,
+// LOG-S12].
 type adoptedSink struct {
 	resolved *resolvedSink
-	opts     AsyncOptions
-	mu       sync.Mutex
-	queue    *AsyncSink
+	// native receives the records while the machine offers no logging
+	// service, when the adopter installed one [LOG-S15].
+	native slog.Handler
+	opts   AsyncOptions
+	mu     sync.Mutex
+	queue  *AsyncSink
+	// closed is set by close; a later write gets ErrSinkClosed and starts
+	// no delivery goroutine.
+	closed bool
 }
 
 func newAdoptedHandler(resolved *resolvedSink, opts *Options) *Handler {
@@ -168,7 +236,7 @@ func newAdoptedHandler(resolved *resolvedSink, opts *Options) *Handler {
 	if opts != nil {
 		o = *opts
 	}
-	sink := &adoptedSink{resolved: resolved, opts: AsyncOptions{
+	sink := &adoptedSink{resolved: resolved, native: o.Native, opts: AsyncOptions{
 		Program: o.Program, OnOverflow: o.OnOverflow, OnFailure: o.OnFailure, OnRecovery: o.OnRecovery,
 	}}
 	return NewHandler(sink, &o)
@@ -176,39 +244,68 @@ func newAdoptedHandler(resolved *resolvedSink, opts *Options) *Handler {
 
 func (s *adoptedSink) Write(r Record) error { return s.WriteContext(context.Background(), r) }
 
-// WriteContext refuses a record whose caller already cancelled, as the
-// synchronous sink did, and otherwise never waits once bound.
+// WriteContext refuses a record whose caller already cancelled and otherwise
+// queues it without waiting.
 func (s *adoptedSink) WriteContext(ctx context.Context, r Record) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	queue, err := s.bind(ctx)
-	if err != nil {
-		return err
+	queue := s.start()
+	if queue == nil {
+		return ErrSinkClosed
 	}
 	return queue.Write(r)
 }
 
-func (s *adoptedSink) bind(ctx context.Context) (*AsyncSink, error) {
-	s.mu.Lock()
-	queue := s.queue
-	s.mu.Unlock()
-	if queue != nil {
-		return queue, nil
-	}
-	// Binding waits 2 s; an activation of a stopped installed runtime runs
-	// within the caller's own budget.
-	bounded, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	if _, err := s.resolved.bind(ctx, bounded, false); err != nil {
-		return nil, err
-	}
+// start returns the queue, starting it on the first write, and nil after close
+// when no record was ever written.
+func (s *adoptedSink) start() *AsyncSink {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.queue == nil {
-		s.queue = NewAsyncSink(s.resolved, s.opts)
+	if s.queue == nil && !s.closed {
+		var inner Sink = s.resolved
+		if s.native != nil {
+			inner = &nativeFallback{resolved: s.resolved, native: s.native}
+		}
+		s.queue = NewAsyncSink(inner, s.opts)
 	}
-	return s.queue, nil
+	return s.queue
+}
+
+// check binds now within 2 s, plus the wait for a runtime start, and keeps the
+// binding for later records.
+func (s *adoptedSink) check(ctx context.Context) error {
+	bounded, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	_, err := s.resolved.bind(ctx, bounded, false)
+	return err
+}
+
+// close drains the queue until ctx is done. A sink that never bound tries once
+// more within ctx; when that fails it stops at once, counts every queued record
+// Failed, and returns the resolution error [LOG-S11]. With a native handler and
+// a machine that offers no logging service, the queue drains to native
+// [LOG-S15].
+func (s *adoptedSink) close(ctx context.Context) (AsyncCounts, error) {
+	s.mu.Lock()
+	s.closed = true
+	queue := s.queue
+	s.mu.Unlock()
+	if queue == nil {
+		return AsyncCounts{}, nil
+	}
+	if !s.resolved.everBound.Load() {
+		if err := s.check(ctx); err != nil && (s.native == nil || !notOffered(err)) {
+			stopped, stop := context.WithCancel(ctx)
+			stop()
+			//unchecked: the queue closes on a cancelled context only to count what it held; the resolution error is the one returned
+			counts, _ := queue.Close(stopped)
+			counts.Failed, counts.Abandoned = counts.Failed+counts.Abandoned, 0
+			counts.LastError = err.Error()
+			return counts, fmt.Errorf("logging: %d records not delivered: %w", counts.Failed, err)
+		}
+	}
+	return queue.Close(ctx)
 }
 
 func (s *adoptedSink) async() *AsyncSink {

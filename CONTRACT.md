@@ -216,23 +216,31 @@ output on the standard error stream. A daemon nobody configured that says
 nothing at all is a defect in this module, and two daemons carried that
 fallback themselves before it lived here. The service-resolved default, Go
 `Default`, reports an absent runtime as the resolution error of `LOG-S11`.
-Its planned fallback is a native logger that the adopter installs
-explicitly beside the facade.
+Its fallback is the native logger that the adopter installs explicitly
+beside the facade (`LOG-S15`).
 
 **[LOG-S11] Absent service is the resolution error.** A service sink MUST
 report an absent service as the facade's resolution error, and the record
-MUST go to no other sink. An application that adopted logging requires the
+MUST go to no other sink than the native logger of `LOG-S15`. An application
+that adopted logging requires the
 service, as a program using a graphics API requires its driver (owner
 ruling, 2026-09-16). When no runtime is installed or reachable, or the
-runtime offers no logging sink, the eager resolution and every write fail
-with the resolution error: `runtime_unavailable` or the resolver's refusal,
-with the capability, the contract and what was looked for. Writing the
+runtime offers no logging sink, the eager resolution fails with the
+resolution error: `runtime_unavailable` or the resolver's refusal, with the
+capability, the contract and what was looked for. A write queues its record
+at once in the bounded queue of `LOG-S12`, and the log statement never waits
+on resolution or on a runtime start. The queue binds in the background,
+retries with `LOG-S12`'s backoff and reports the error through `LOG-S13`.
+A stopped installed runtime is started in the background, one start at a
+time; after a failed start the next waits 5 s, doubling up to 1 min.
+Closing a sink that never bound tries to bind once more within the caller's
+deadline; when that fails, every queued record is counted failed and close
+returns the resolution error. Writing the
 record to the standard error stream, a file or a discarding sink in its
 place would hide the missing runtime from the operator who enabled
 logging, and the ruling names that substitution a defect. A fallback is the
 local sink the application selects by name: the environment chain above,
-or the native logger an adopter installs beside the facade, which is
-designed and not built.
+or the native logger an adopter installs beside the facade (`LOG-S15`).
 
 **[LOG-S12] Bounded queue, backoff, rebind.** A bound service sink whose
 service disappears MUST keep its records in a bounded queue, MUST retry
@@ -257,7 +265,8 @@ asynchronous handler holds the policy:
   same client.
 - Each delivery is bounded by a write timeout, 5 s by default. A delivery
   that times out is a failed delivery.
-- Closing drains the queue until the caller's deadline. The record being
+- Closing drains the queue until the caller's deadline, or for 5 s when
+  the caller gives none. The record being
   delivered at the deadline is counted failed, and the records behind it
   are counted abandoned.
 - Records go to no disk spool and no other sink. Durability belongs to the
@@ -337,6 +346,37 @@ Shared append-only `OpenFileSink` and adopter-owned log files keep their
 existing lifecycle. No durability receipt or record schema change is
 introduced. The person's controls over the retention keys are under
 [Next](#next).
+
+**[LOG-S15] Native logger when no service is offered.** A service sink
+given the native logger an adopter installs beside the facade MUST send its
+records to that logger while the machine answers that it offers no logging
+service before its first binding, and only then (owner decision,
+2026-09-15). The answer is one of:
+no trusted runtime installation, a platform no runtime supports, or the
+resolver's `unavailable`. Every other outcome stays the resolution error of
+`LOG-S11`: `forbidden`, `incompatible`, `not_ready`, a trust failure, a
+resolver timeout or transport error, a failed runtime start, and a write
+failure after a successful binding.
+
+- The native logger is the only switch, and the facade ships none.
+- The native logger receives each record through the language's own
+  logging: time, level, message and attributes. The identity chain stays
+  behind, because no receiving service stamps it.
+- On each transition into the fallback the native logger receives one WARN
+  line, `abstraction.logging/sink@1 not offered: <class>`, with the class of
+  `LOG-S13`. The transition back writes one line,
+  `abstraction.logging/sink@1 offered again; records go to the service`.
+- The machine is asked again at most once per 30 s, and a runtime installed
+  later takes over without a restart. Records the native logger took are
+  not replayed to the service.
+- The handler's counts gain `native`: every accepted record ends as exactly
+  one of written, native, failed or abandoned, or is still queued.
+
+Go `DefaultWithNative(program, native slog.Handler)` and Python
+`resolved_handler(native=logging.Handler)` implement it. Python reads no
+installation as `abstraction.ipc` finding no native client and no recorded
+installation, or, on Windows, default discovery's `runtime_unavailable` with
+no installation recorded in the registry.
 
 ### Identity
 
@@ -880,10 +920,9 @@ acknowledgement for copying external records.
 
 ## Not built
 
-- A native logger fallback for `LOG-S11`'s absent-runtime case: the
-  environment chain is the only fallback today; the native logger an
-  adopter installs beside the facade is designed and not built (`LOG-S8`,
-  `LOG-S11`).
+- The native logger of `LOG-S15` in C++, Rust and JavaScript, planned for
+  0.9.0 with the design's `ResolveLogOr`, `resolve_log_or` and
+  `resolveLogOr`.
 - An owned retention mutation API for retained history; complete
   retention/replay subscriptions remain implementation work.
 - Standalone macOS Unix-socket calls lack Program proof and fail closed.

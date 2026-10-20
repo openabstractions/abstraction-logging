@@ -94,10 +94,13 @@ type AsyncOptions struct {
 
 // AsyncCounts is a snapshot of an AsyncSink [LOG-S13]. Every record handed to
 // Write is exactly one of Dropped or Accepted; every accepted record ends as
-// exactly one of Written, Failed or Abandoned, or is still Queued.
+// exactly one of Written, Native, Failed or Abandoned, or is still Queued.
+// Native counts the records a native handler took while the machine offered
+// no logging service [LOG-S15].
 type AsyncCounts struct {
 	Accepted, Dropped          uint64
 	Written, Failed, Abandoned uint64
+	Native                     uint64
 	Queued                     int
 	Failing                    bool
 	LastError                  string
@@ -243,12 +246,22 @@ func (s *AsyncSink) Close(ctx context.Context) (AsyncCounts, error) {
 
 func (s *AsyncSink) run() {
 	defer close(s.done)
-	deliver := func(r Record) error { return s.deliver(s.stop, r) }
+	deliverAny := func(r Record) error { return s.deliver(s.stop, r) }
 	if s.opts.WriteTimeout > 0 {
 		bounded := &boundedDelivery{sink: s, attempts: make(chan attempt)}
 		go bounded.loop()
 		defer close(bounded.attempts)
-		deliver = bounded.deliver
+		deliverAny = bounded.deliver
+	}
+	// A record the native handler took is delivered, and counted Native.
+	native := false
+	deliver := func(r Record) error {
+		err := deliverAny(r)
+		native = errors.Is(err, errDeliveredNative)
+		if native {
+			return nil
+		}
+		return err
 	}
 	for {
 		if err := s.reportDrained(deliver); err != nil {
@@ -266,7 +279,11 @@ func (s *AsyncSink) run() {
 		if err == nil {
 			s.mu.Lock()
 			s.pop()
-			s.counts.Written++
+			if native {
+				s.counts.Native++
+			} else {
+				s.counts.Written++
+			}
 			if !s.draining {
 				s.lost = 0
 			}

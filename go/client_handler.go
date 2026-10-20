@@ -106,12 +106,7 @@ func ResolveVerified(ctx context.Context, program, endpoint string, server liste
 // for later records.
 func (h *Handler) Check(ctx context.Context) error {
 	if sink, ok := h.sink.(*adoptedSink); ok {
-		if sink.async() != nil {
-			_, err := sink.resolved.binding(ctx)
-			return err
-		}
-		_, err := sink.bind(ctx)
-		return err
+		return sink.check(ctx)
 	}
 	return nil
 }

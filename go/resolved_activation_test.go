@@ -51,7 +51,7 @@ func stoppedInstallation(t *testing.T) (*Handler, *resolvedSink, bootstrap.Selec
 	if runtime.GOOS == "linux" {
 		selected.Server.Principal = identity.User{Kind: "posix", UID: os.Geteuid(), GID: -1}
 	}
-	handler := Default("activation-test").(*Handler)
+	handler := Default("activation-test")
 	sink := handler.sink.(*adoptedSink).resolved
 	sink.selectInstalled = func(context.Context) (bootstrap.Selection, error) { return selected, nil }
 	return handler, sink, selected
@@ -144,13 +144,24 @@ func TestDefaultHandlerActivatesAStoppedInstallationOnce(t *testing.T) {
 		served = serveResolver(t, selected.Endpoint)
 		return nil
 	}
-	// The resolved provider endpoint is a fixture nobody serves: the record
-	// is queued after binding, and binding needed exactly one activation.
+	// The resolved provider endpoint is a fixture nobody serves. The record is
+	// queued at once, and the delivery goroutine's binding needed exactly one
+	// activation.
 	handler.Handle(context.Background(), slog.NewRecord(time.Now(), slog.LevelInfo, "after activation", 0))
 	adopted := handler.sink.(*adoptedSink)
 	queue := adopted.async()
-	if activations.Load() != 2 || queue == nil {
-		t.Fatalf("record activations %d queue %v", activations.Load(), queue)
+	if queue == nil {
+		t.Fatal("the record was not queued")
+	}
+	for deadline := time.Now().Add(5 * time.Second); !sink.everBound.Load(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("never bound after %d activations", activations.Load())
+		}
+	}
+	// The write to the unserved provider fails, and its rebind may start the
+	// runtime once more; that start fails and is remembered.
+	if n := activations.Load(); n < 2 || n > 3 {
+		t.Fatalf("record activations %d", n)
 	}
 	if err := <-served; err != nil {
 		t.Fatal(err)
@@ -192,7 +203,7 @@ func TestDefaultHandlerReportsARefusedActivationAsRuntimeUnavailable(t *testing.
 }
 
 func TestDefaultHandlerWithNoInstallationActivatesNothing(t *testing.T) {
-	handler := Default("activation-test").(*Handler)
+	handler := Default("activation-test")
 	sink := handler.sink.(*adoptedSink).resolved
 	sink.selectInstalled = func(context.Context) (bootstrap.Selection, error) {
 		return bootstrap.Selection{}, bootstrap.ErrNoTrustedInstallation
@@ -246,5 +257,65 @@ func TestPresentEndpointIsNeverActivated(t *testing.T) {
 	}
 	if err := handler.Check(context.Background()); err == nil {
 		t.Fatal("an untrusted server resolved")
+	}
+}
+
+// While the installed runtime cannot start, a log statement never waits on it.
+// The record is queued at once, the start runs once in the background and is
+// remembered when it fails, and Close reports the failure with every queued
+// record counted.
+func TestDefaultHandlerNeverBlocksWhileTheRuntimeCannotStart(t *testing.T) {
+	_, sink, _ := stoppedInstallation(t)
+	var activations atomic.Int32
+	started := make(chan struct{})
+	sink.activate = func(ctx context.Context, _ bootstrap.Selection) error {
+		if activations.Add(1) == 1 {
+			close(started)
+		}
+		// A start that takes longer than a delivery's write timeout, then fails.
+		select {
+		case <-time.After(6 * time.Second):
+		case <-ctx.Done():
+		}
+		return fmt.Errorf("%w: the runtime exited at start", bootstrap.ErrActivationRefused)
+	}
+	var failures atomic.Int32
+	h := NewDefaultHandler(&Options{Program: "blocked-start", OnFailure: func(error, AsyncCounts) { failures.Add(1) }})
+	h.sink.(*adoptedSink).resolved = sink
+	logger := slog.New(h)
+	began := time.Now()
+	for i := range 200 {
+		logger.Info("record while the runtime cannot start", "i", i)
+	}
+	if took := time.Since(began); took > time.Second {
+		t.Fatalf("200 log statements took %v while the runtime could not start", took)
+	}
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the background start never began")
+	}
+	// The delivery goroutine retries with backoff while the one start runs.
+	time.Sleep(7 * time.Second)
+	if n := activations.Load(); n != 1 {
+		t.Fatalf("%d starts, want one start and its failure remembered", n)
+	}
+	counts := h.Counts()
+	if counts.Accepted != 200 || counts.Queued != 200 || !counts.Failing || failures.Load() != 1 {
+		t.Fatalf("counts %+v failures %d, want 200 queued and one failure transition", counts, failures.Load())
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	began = time.Now()
+	counts, err := h.Close(ctx)
+	var refused *ResolutionError
+	if !errors.As(err, &refused) || refused.Status != resolution.RuntimeUnavailable || !errors.Is(err, bootstrap.ErrActivationRefused) {
+		t.Fatalf("Close: %v", err)
+	}
+	if counts.Failed != 200 || counts.Abandoned != 0 || counts.Written != 0 || time.Since(began) > 2*time.Second {
+		t.Fatalf("Close counts %+v after %v", counts, time.Since(began))
+	}
+	if n := activations.Load(); n != 1 {
+		t.Fatalf("Close started the runtime again within the retry wait: %d starts", n)
 	}
 }

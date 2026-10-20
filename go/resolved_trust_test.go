@@ -5,32 +5,38 @@ import (
 	"errors"
 	"github.com/openabstractions/abstraction-facade/go-core/bootstrap"
 	"log/slog"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 func TestDefaultHandlerRefusesUnselectedInstallation(t *testing.T) {
 	for _, want := range []error{bootstrap.ErrNoTrustedInstallation, bootstrap.ErrAmbiguousInstallation, bootstrap.ErrUnsupportedSelection} {
-		handler := Default("trust-test").(*Handler)
+		handler := Default("trust-test")
 		sink := handler.sink.(*adoptedSink).resolved
-		called := 0
+		var called atomic.Int32
 		sink.selectInstalled = func(ctx context.Context) (bootstrap.Selection, error) {
-			called++
+			called.Add(1)
 			deadline, ok := ctx.Deadline()
-			if !ok || time.Until(deadline) > 2*time.Second {
-				t.Fatal("missing total waiting budget")
+			if !ok || time.Until(deadline) > 5*time.Second {
+				t.Error("missing total waiting budget")
 			}
 			return bootstrap.Selection{}, want
 		}
-		err := handler.Handle(context.Background(), slog.NewRecord(time.Now(), slog.LevelInfo, "private record", 0))
-		if !errors.Is(err, want) || called != 1 || sink.bound != nil {
-			t.Fatalf("unselected default: %v calls=%d bound=%v", err, called, sink.bound)
+		if err := handler.Handle(context.Background(), slog.NewRecord(time.Now(), slog.LevelInfo, "private record", 0)); err != nil {
+			t.Fatalf("Handle refused the record: %v", err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		counts, err := handler.Close(ctx)
+		cancel()
+		if !errors.Is(err, want) || called.Load() < 1 || sink.bound != nil || counts.Written != 0 || counts.Failed != 1 {
+			t.Fatalf("unselected default: %v calls=%d bound=%v counts=%+v", err, called.Load(), sink.bound, counts)
 		}
 	}
 }
 
 func TestDefaultHandlerCanceledBeforeSelection(t *testing.T) {
-	handler := Default("trust-test").(*Handler)
+	handler := Default("trust-test")
 	handler.sink.(*adoptedSink).resolved.selectInstalled = func(context.Context) (bootstrap.Selection, error) {
 		t.Fatal("selection after cancellation")
 		return bootstrap.Selection{}, nil

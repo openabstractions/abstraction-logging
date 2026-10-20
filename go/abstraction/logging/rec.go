@@ -4,6 +4,8 @@ package logging
 
 import "time"
 
+import "runtime/debug"
+
 type Raw = string
 
 func escByte(out []byte, c byte) []byte {
@@ -8052,6 +8054,23 @@ func serviceReply(v *oaServiceFrame, payload Raw, err error) (frame []byte, outE
 	return frame, nil
 }
 
+// handlerPanic writes a recovered handler panic and its stack to standard error.
+func handlerPanic(service, method string, p interface{}) {
+	value := "a value that is neither a string nor an error"
+	func() {
+		defer func() { _ = recover() }()
+		switch v := p.(type) {
+		case string:
+			value = v
+		case error:
+			value = v.Error()
+		case interface{ String() string }:
+			value = v.String()
+		}
+	}()
+	print(service, " ", method, ": handler panic: ", value, "\n", string(debug.Stack()))
+}
+
 // EndpointContract is abstraction.facade/endpoint@1, which every dispatcher
 // answers beside its own service.
 const EndpointContract = "abstraction.facade/endpoint@1"
@@ -8259,7 +8278,8 @@ func ServeEndpointRemote(frame []byte, program, version string, admit func(contr
 			return &ServiceError{Code: "forbidden", Message: "remote admission required"}
 		}
 		defer func() {
-			if recover() != nil {
+			if p := recover(); p != nil {
+				handlerPanic(v.Service, v.Method+" admission", p)
 				err = &ServiceError{Code: ServiceErrorCodeHandlerError, Message: "handler failed"}
 			}
 		}()
@@ -8642,6 +8662,7 @@ func (d *HistoryReaderDispatcher) invokeUsage(args *oaHistoryReaderUsageArgument
 			if _, ok := p.(*Refusal); ok {
 				err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
 			} else {
+				handlerPanic("abstraction.logging/reader@1", "Usage", p)
 				err = &ServiceError{Code: ServiceErrorCodeHandlerError, Message: "handler failed"}
 			}
 		}
@@ -8678,6 +8699,7 @@ func (d *HistoryReaderDispatcher) invokeRead(args *oaHistoryReaderReadArguments)
 			if _, ok := p.(*Refusal); ok {
 				err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
 			} else {
+				handlerPanic("abstraction.logging/reader@1", "Read", p)
 				err = &ServiceError{Code: ServiceErrorCodeHandlerError, Message: "handler failed"}
 			}
 		}
@@ -8861,6 +8883,7 @@ func (d *HistoryObserverDispatcher) invokeObserve(args *oaHistoryObserverObserve
 			if _, ok := p.(*Refusal); ok {
 				err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
 			} else {
+				handlerPanic("abstraction.logging/observer@1", "Observe", p)
 				err = &ServiceError{Code: ServiceErrorCodeHandlerError, Message: "handler failed"}
 			}
 		}
@@ -9108,6 +9131,7 @@ func (d *ApplicationHistoryReaderDispatcher) invokeRead(args *oaApplicationHisto
 			if _, ok := p.(*Refusal); ok {
 				err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
 			} else {
+				handlerPanic("abstraction.logging/reader@2", "Read", p)
 				err = &ServiceError{Code: ServiceErrorCodeHandlerError, Message: "handler failed"}
 			}
 		}
@@ -9140,6 +9164,7 @@ func (d *ApplicationHistoryReaderDispatcher) invokeReadAboutCaller(args *oaAppli
 			if _, ok := p.(*Refusal); ok {
 				err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
 			} else {
+				handlerPanic("abstraction.logging/reader@2", "ReadAboutCaller", p)
 				err = &ServiceError{Code: ServiceErrorCodeHandlerError, Message: "handler failed"}
 			}
 		}
@@ -9327,6 +9352,7 @@ func (d *ApplicationHistoryObserverDispatcher) invokeObserve(args *oaApplication
 			if _, ok := p.(*Refusal); ok {
 				err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
 			} else {
+				handlerPanic("abstraction.logging/observer@2", "Observe", p)
 				err = &ServiceError{Code: ServiceErrorCodeHandlerError, Message: "handler failed"}
 			}
 		}
@@ -9632,6 +9658,7 @@ func (d *SourceReaderDispatcher) invokeSources(args *oaSourceReaderSourcesArgume
 			if _, ok := p.(*Refusal); ok {
 				err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
 			} else {
+				handlerPanic("abstraction.logging/source-reader@1", "Sources", p)
 				err = &ServiceError{Code: ServiceErrorCodeHandlerError, Message: "handler failed"}
 			}
 		}
@@ -9664,6 +9691,7 @@ func (d *SourceReaderDispatcher) invokeRead(args *oaSourceReaderReadArguments) (
 			if _, ok := p.(*Refusal); ok {
 				err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
 			} else {
+				handlerPanic("abstraction.logging/source-reader@1", "Read", p)
 				err = &ServiceError{Code: ServiceErrorCodeHandlerError, Message: "handler failed"}
 			}
 		}
@@ -9696,6 +9724,7 @@ func (d *SourceReaderDispatcher) invokeStartAtEnd(args *oaSourceReaderStartAtEnd
 			if _, ok := p.(*Refusal); ok {
 				err = &ServiceError{Code: ServiceErrorCodeInvalidResult}
 			} else {
+				handlerPanic("abstraction.logging/source-reader@1", "StartAtEnd", p)
 				err = &ServiceError{Code: ServiceErrorCodeHandlerError, Message: "handler failed"}
 			}
 		}

@@ -159,7 +159,7 @@ func TestResolveVerifiedReportsTypedRefusal(t *testing.T) {
 	if handler != nil || !errors.As(err, &refusal) || string(refusal.Status) != facade.ResolutionStatusNotReady.String() {
 		t.Fatalf("handler %v, error %v", handler, err)
 	}
-	lazy := logging.NewResolvedHandler("refused", resolver, thisProgram(t)).(*logging.Handler)
+	lazy := logging.NewResolvedHandler("refused", resolver, thisProgram(t))
 	if err := lazy.Check(ctx); !errors.As(err, &refusal) || string(refusal.Status) != facade.ResolutionStatusNotReady.String() {
 		t.Fatalf("check on a lazy handler: %v", err)
 	}
@@ -178,14 +178,18 @@ func TestResolveVerifiedWithNoRuntimeIsTheResolutionError(t *testing.T) {
 		t.Fatalf("handler %v, error %T %v; want no handler and *ResolutionError", handler, err, err)
 	}
 	if refused.Status != resolution.RuntimeUnavailable || refused.Contract != "abstraction.logging/sink@1" ||
-		refused.LookedFor != "the explicit endpoint "+nobody || strings.Contains(err.Error(), "installed runtime") {
+		refused.LookedFor != "the explicit endpoint "+nobody || !strings.Contains(err.Error(), " at the explicit endpoint "+nobody) {
 		t.Fatalf("resolution error %+v: %v", refused, err)
 	}
+	// The lazy handler queues the record and returns; Close reports the error.
 	lazy := logging.NewResolvedHandler("absent", nobody, thisProgram(t))
-	if err := lazy.Handle(ctx, slog.NewRecord(time.Now(), slog.LevelInfo, "lost", 0)); !errors.As(err, &refused) ||
-		refused.Status != resolution.RuntimeUnavailable || refused.LookedFor != "the explicit endpoint "+nobody ||
-		!strings.Contains(err.Error(), " at the explicit endpoint "+nobody) {
-		t.Fatalf("a record through the lazy handler with no runtime: %v", err)
+	if err := lazy.Handle(ctx, slog.NewRecord(time.Now(), slog.LevelInfo, "lost", 0)); err != nil {
+		t.Fatalf("Handle refused the record: %v", err)
+	}
+	counts, err := lazy.Close(ctx)
+	if !errors.As(err, &refused) || refused.Status != resolution.RuntimeUnavailable || refused.LookedFor != "the explicit endpoint "+nobody ||
+		!strings.Contains(err.Error(), " at the explicit endpoint "+nobody) || counts.Failed != 1 {
+		t.Fatalf("a record through the lazy handler with no runtime: %+v, %v", counts, err)
 	}
 }
 
@@ -201,3 +205,55 @@ func TestResolveVerifiedRefusesAnotherServer(t *testing.T) {
 		t.Fatalf("resolved against an untrusted server: %v %v", handler, err)
 	}
 }
+
+// The README quickstart: main returns right after its last slog call, and the
+// deferred Close has delivered every record, the last one included, before
+// the deferred call returns.
+func TestQuickstartDeferredCloseDeliversTheLastRecord(t *testing.T) {
+	skipWithoutProgramProof(t)
+	logEndpoint, records := startLogService(t, "lqs")
+	resolver := startResolver(t, "lqsr", logEndpoint, true)
+	main := func() {
+		h := logging.NewResolvedHandler("my-app", resolver, thisProgram(t))
+		defer h.Close(context.Background())
+		slog.New(h).Info("worker started", "component", "indexer")
+		slog.New(h).Error("last words before exit")
+	}
+	main()
+	var got []string
+	for len(got) < 3 {
+		select {
+		case r := <-records:
+			got = append(got, r.Msg)
+			continue
+		default:
+		}
+		break
+	}
+	if len(got) != 2 || got[0] != "worker started" || got[1] != "last words before exit" {
+		t.Fatalf("delivered before main returned: %q", got)
+	}
+}
+
+// Close without a deadline is bounded by DefaultCloseTimeout, so a deferred
+// Close at exit returns while the service is unreachable.
+func TestCloseWithoutDeadlineIsBounded(t *testing.T) {
+	unreachable := errors.New("service unreachable")
+	queue := logging.NewAsyncSink(sinkFunc(func(logging.Record) error { return unreachable }),
+		logging.AsyncOptions{OnFailure: func(error, logging.AsyncCounts) {}})
+	h := logging.NewHandler(queue, &logging.Options{Program: "bounded-close"})
+	slog.New(h).Info("never delivered")
+	began := time.Now()
+	counts, err := h.Close(context.Background())
+	took := time.Since(began)
+	if !errors.Is(err, logging.ErrCloseDeadline) || counts.Failed != 1 {
+		t.Fatalf("Close: %+v, %v", counts, err)
+	}
+	if took < logging.DefaultCloseTimeout-time.Second || took > logging.DefaultCloseTimeout+2*time.Second {
+		t.Fatalf("Close without a deadline took %v, want about %v", took, logging.DefaultCloseTimeout)
+	}
+}
+
+type sinkFunc func(logging.Record) error
+
+func (f sinkFunc) Write(r logging.Record) error { return f(r) }

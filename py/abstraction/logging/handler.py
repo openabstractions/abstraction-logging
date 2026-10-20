@@ -37,6 +37,12 @@ dropped after the first was built.
 
 A record logged on the delivery thread, or from a transition callback, goes to
 the other handlers only.
+
+resolved_handler(native=handler) adds the native handler an adopter installs
+beside the facade [LOG-S15]. While this machine answers that it offers no
+logging service, records go to that stdlib logging.Handler and are counted
+native, after one line naming the reason. The machine is asked again every
+NATIVE_RECHECK_INTERVAL seconds, and a runtime installed later takes over.
 """
 import collections
 import datetime
@@ -63,14 +69,20 @@ UNKNOWN = -1
 SELF = "self"
 WARN = 4
 
-HandlerCounts = namedtuple("HandlerCounts", "accepted dropped written failed abandoned queued failing last_error")
+NATIVE_RECHECK_INTERVAL = 30.0
+_NATIVE = object()  # a sink's write result: the native handler took the record
+_NOT_INSTALLED = "install OpenAbstractions"  # abstraction.ipc.Library with no native client and no installation
+
+HandlerCounts = namedtuple("HandlerCounts", "accepted dropped written failed abandoned queued failing last_error native",
+                           defaults=(0,))
 HandlerCounts.__doc__ = """A snapshot of a ServiceHandler [LOG-S13].
 
 Every handled record is exactly one of accepted or dropped. Every accepted record
-ends as exactly one of written, failed (the record being delivered when close
-reached its timeout) or abandoned (behind it), or is still queued. failing: the
-latest delivery failed and the handler is retrying. last_error: repr of the
-latest failure, or ""."""
+ends as exactly one of written, native (taken by the native handler while the
+machine offered no logging service [LOG-S15]), failed (the record being
+delivered when close reached its timeout) or abandoned (behind it), or is still
+queued. failing: the latest delivery failed and the handler is retrying.
+last_error: repr of the latest failure, or ""."""
 
 
 class DeliveryTimeout(TimeoutError):
@@ -164,10 +176,10 @@ def _positive(name, value):
 
 
 class _Attempt:
-    __slots__ = ("sink", "record", "done", "error", "event")
+    __slots__ = ("sink", "record", "done", "error", "result", "event")
 
     def __init__(self, sink, record):
-        self.sink, self.record, self.done, self.error = sink, record, False, None
+        self.sink, self.record, self.done, self.error, self.result = sink, record, False, None, None
         self.event = threading.Event()
 
 
@@ -193,7 +205,7 @@ class _BoundedWriter:
             if attempt is None:
                 return
             try:
-                attempt.sink.write(attempt.record)
+                attempt.result = attempt.sink.write(attempt.record)
             except BaseException as error:
                 # A delivery failure of any kind goes back to the delivery thread.
                 attempt.error = error
@@ -226,6 +238,7 @@ class _BoundedWriter:
             raise DeliveryTimeout("abstraction.logging: delivery exceeded its write timeout (%gs)" % timeout)
         if attempt.error is not None:
             raise attempt.error
+        return attempt.result
 
     def wake(self):
         current = self._current
@@ -278,7 +291,7 @@ class ServiceHandler(logging.Handler):
         self._local = threading.local()
         self._cond = threading.Condition()
         self._queue = collections.deque()
-        self._accepted = self._dropped = self._written = self._failed = self._abandoned = 0
+        self._accepted = self._dropped = self._written = self._failed = self._abandoned = self._native = 0
         self._failing = False
         self._last_error = ""
         self._overflowing = False
@@ -301,7 +314,7 @@ class ServiceHandler(logging.Handler):
 
     def _snapshot(self):
         return HandlerCounts(self._accepted, self._dropped, self._written, self._failed, self._abandoned,
-                             len(self._queue), self._failing, self._last_error)
+                             len(self._queue), self._failing, self._last_error, self._native)
 
     def handle(self, record):
         # The delivery threads never enter the handler lock: logging.shutdown
@@ -383,7 +396,7 @@ class ServiceHandler(logging.Handler):
             if record is None:
                 return
             try:
-                self._deliver(record)
+                result = self._deliver(record)
             except Exception as error:
                 if self._stop.is_set() or not self._retry(error):
                     self._give_up()
@@ -391,7 +404,10 @@ class ServiceHandler(logging.Handler):
             else:
                 with self._cond:
                     self._pop()
-                    self._written += 1
+                    if result is _NATIVE:
+                        self._native += 1
+                    else:
+                        self._written += 1
                     if not self._draining:
                         self._lost = 0
                     self._cond.notify_all()
@@ -426,9 +442,8 @@ class ServiceHandler(logging.Handler):
 
     def _deliver(self, record):
         if self._writer is None:
-            self._sink.write(record)
-        else:
-            self._writer.deliver(self._sink, record, self._write_timeout)
+            return self._sink.write(record)
+        return self._writer.deliver(self._sink, record, self._write_timeout)
 
     def _rebind_once(self):
         if self._rebind is None:
@@ -503,7 +518,112 @@ class ServiceHandler(logging.Handler):
             self._overflowing = False
 
 
-def resolved_handler(machine_factory=None, *, program="", scope=None, **options):
+def not_offered(error):
+    """Whether a resolution failure is a definite answer that this machine
+    offers no logging service [LOG-S15]: the resolver's unavailable, a
+    platform no runtime supports, or no OA installation. No installation is
+    abstraction.ipc finding no native client and no recorded installation, or,
+    on Windows, default discovery's runtime_unavailable with no installation
+    recorded in the registry."""
+    if type(error).__name__ == "ResolutionError":
+        status = getattr(error, "status", None)
+        if status == "unavailable" or getattr(error, "platform", None) is not None:
+            return True
+        if (status == "runtime_unavailable" and sys.platform == "win32"
+                and str(getattr(error, "looked_for", "")).startswith("the installed runtime")):
+            from abstraction.ipc import _native
+            return _native.installed_library_path() is None
+        return False
+    return isinstance(error, ValueError) and str(error).startswith(_NOT_INSTALLED)
+
+
+def _reason(error):
+    status = getattr(error, "status", None)
+    return status if type(error).__name__ == "ResolutionError" and isinstance(status, str) else "runtime_unavailable"
+
+
+def _parse_time(text):
+    try:
+        moment = datetime.datetime.strptime(text, "%Y-%m-%dT%H:%M:%S.%fZ")
+    except (TypeError, ValueError):
+        return time.time()
+    return moment.replace(tzinfo=datetime.timezone.utc).timestamp()
+
+
+class _NativeFallback:
+    """The sink of a resolved_handler given a native handler [LOG-S15].
+
+    It writes to the resolved service, and to the native handler while the
+    machine answers that it offers no logging service."""
+
+    def __init__(self, resolve, native, program):
+        self._resolve, self._native, self._program = resolve, native, program
+        self._sink = None
+        self._active = False
+        self._recheck = 0.0
+
+    def bind(self):
+        """Resolve now. A not-offered answer activates the fallback; any other
+        failure raises. Returns this sink, as ServiceHandler's rebind expects."""
+        try:
+            sink = self._resolve()
+        except Exception as error:
+            # A failure after a successful binding is that binding's, and its
+            # records wait for the service [LOG-S12].
+            if self._sink is not None or not not_offered(error):
+                raise
+            self._recheck = time.monotonic() + NATIVE_RECHECK_INTERVAL
+            if not self._active:
+                self._active = True
+                self._line(logging.WARNING, "abstraction.logging/sink@1 not offered: " + _reason(error))
+            return self
+        self._sink = sink
+        if self._active:
+            self._active = False
+            self._line(logging.INFO, "abstraction.logging/sink@1 offered again; records go to the service")
+        return self
+
+    def write(self, record):
+        if self._active and time.monotonic() >= self._recheck:
+            self.bind()
+        if self._active:
+            return self._to_native(record)
+        return self._sink.write(record)
+
+    def _emit(self, log):
+        if log.levelno >= self._native.level:
+            try:
+                self._native.handle(log)
+            except Exception:
+                # The native handler is the adopter's; a failure there has nowhere else to go.
+                pass
+
+    def _line(self, levelno, message):
+        self._emit(logging.LogRecord("abstraction.logging", levelno, "", 0, message, None, None))
+
+    def _to_native(self, record):
+        """The record with its time, level, message and attributes; the identity
+        chain stays behind, because no receiving service stamps it."""
+        attrs = dict(record.attrs or {})
+        source = attrs.pop("source", "")
+        pathname, _, line = source.rpartition(":")
+        log = logging.LogRecord(attrs.pop("logger", self._program or "root"), logging.INFO + record.level * 5 // 2,
+                                pathname, int(line) if line.isdigit() else 0, record.msg, None, None)
+        log.created = _parse_time(record.time)
+        log.msecs = (log.created - int(log.created)) * 1000
+        thread = attrs.pop("thread", None)
+        if thread is not None:
+            log.threadName = thread
+        exception = attrs.pop("exception", None)
+        if exception is not None:
+            log.exc_text = exception
+        for key, value in attrs.items():
+            log.__dict__.setdefault(key, value)
+        self._emit(log)
+        return _NATIVE
+
+
+def resolved_handler(machine_factory=None, *, program="", scope=None, native=None, **options):
     """Resolve abstraction.logging/sink@1 now and return a ServiceHandler that
     rebinds through the same resolution [LOG-S11, LOG-S12].
 
@@ -511,7 +631,13 @@ def resolved_handler(machine_factory=None, *, program="", scope=None, **options)
     abstraction.facade.client.Machine, whose default discovery selects the
     installed runtime again at each rebind. scope is an
     abstraction.facade.Scope and defaults to Scope.LOCAL. The resolution error
-    of an absent service is raised here, and no handler is made."""
+    of an absent service is raised here, and no handler is made.
+
+    native is a stdlib logging.Handler the adopter installs beside the facade,
+    for example logging.StreamHandler() [LOG-S15]. When the machine answers
+    that it offers no logging service (see not_offered), the handler is made,
+    and records go to native until a recheck finds the service. Every other
+    resolution error is still raised here."""
     if machine_factory is None:
         from abstraction.facade.client import Machine as machine_factory
     if scope is None:
@@ -521,4 +647,9 @@ def resolved_handler(machine_factory=None, *, program="", scope=None, **options)
     def resolve():
         return machine_factory().resolve_log(scope=scope)
 
-    return ServiceHandler(resolve(), program=program, rebind=resolve, **options)
+    if native is None:
+        return ServiceHandler(resolve(), program=program, rebind=resolve, **options)
+    if not callable(getattr(native, "handle", None)) or not isinstance(getattr(native, "level", None), int):
+        raise TypeError("native must be a logging.Handler")
+    fallback = _NativeFallback(resolve, native, program).bind()
+    return ServiceHandler(fallback, program=program, rebind=fallback.bind, **options)

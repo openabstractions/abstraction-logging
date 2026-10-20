@@ -5,17 +5,27 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 )
 
+// DefaultCloseTimeout bounds Handler.Close when its context has no deadline,
+// as Python's ServiceHandler.close bounds its own.
+const DefaultCloseTimeout = 5 * time.Second
+
 // Default returns a handler bound lazily to the resolved logging service.
-// Until the first successful resolution, Handle resolves and reports an absent
-// service as the resolution error [LOG-S11]. Once bound, records are queued and
-// delivered by an AsyncSink that retries and rebinds when the service
-// disappears, and reports each transition on standard error [LOG-S12, LOG-S13].
-// Nothing falls back to a file or stderr. Standard slog.Logger discards Handler
-// errors; callers requiring a resolution error must invoke Check, Handle or the
-// typed client.
-func Default(program string) slog.Handler {
+// Handle queues each record and returns at once. An AsyncSink binds in the
+// background, starts a stopped installed runtime, retries and rebinds while the
+// service is absent, and reports each transition on standard error [LOG-S11,
+// LOG-S12, LOG-S13]. Nothing falls back to a file or stderr. Close returns the
+// resolution error when records were logged and the handler never bound, and
+// Check returns it at once.
+//
+// Default returns the *Handler so the program can drain it before exit:
+//
+//	h := logging.Default("my-app")
+//	defer h.Close(context.Background())
+//	slog.SetDefault(slog.New(h))
+func Default(program string) *Handler {
 	return NewDefaultHandler(&Options{Program: program})
 }
 
@@ -42,7 +52,9 @@ func LegacyDefault(program string) slog.Handler {
 // does not take a dependency in its libraries. It changes where the default
 // logger points:
 //
-//	slog.SetDefault(slog.New(logging.Default("modelget")))
+//	h := logging.Default("modelget")
+//	defer h.Close(context.Background())
+//	slog.SetDefault(slog.New(h))
 //
 // Every slog.Info in the program and in every library it imports now lands in a
 // sink that other processes and other machines can read. SLF4J earned adoption
@@ -72,6 +84,10 @@ type Options struct {
 	OnFailure  func(error, AsyncCounts)
 	OnRecovery func(AsyncCounts)
 	OnOverflow func(AsyncCounts)
+	// Native receives the records of a handler bound through the facade while
+	// the machine offers no logging service; see DefaultWithNative [LOG-S15].
+	// Other handlers ignore it.
+	Native slog.Handler
 }
 
 func NewHandler(sink Sink, opts *Options) *Handler {
@@ -93,9 +109,22 @@ func (h *Handler) Counts() AsyncCounts {
 }
 
 // Close drains the queue of a handler bound through the facade, or of a handler
-// over an AsyncSink, until ctx is done; see AsyncSink.Close. Other handlers
-// have nothing to drain.
+// over an AsyncSink, until ctx is done, or for DefaultCloseTimeout when ctx has
+// no deadline; see AsyncSink.Close. A facade handler
+// that never bound tries to bind once more within ctx; when that fails it stops
+// at once and returns the resolution error, with every queued record counted
+// Failed [LOG-S11]. Handle stays fail-open under
+// slog; Close is where the program sees the error. Other handlers have nothing
+// to drain.
 func (h *Handler) Close(ctx context.Context) (AsyncCounts, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		bounded, cancel := context.WithTimeout(ctx, DefaultCloseTimeout)
+		defer cancel()
+		ctx = bounded
+	}
+	if adopted, ok := h.sink.(*adoptedSink); ok {
+		return adopted.close(ctx)
+	}
 	if queue := h.queue(); queue != nil {
 		return queue.Close(ctx)
 	}

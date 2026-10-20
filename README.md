@@ -27,23 +27,46 @@ under rights' typed application-log target (CONTRACT.md LOG-P5 to LOG-P8).
 
 ## Send a [record](https://openabstractions.github.io/reference.html#concept-log.record)
 
-Go callers can install [`logging.Default("my-app")`](https://openabstractions.github.io/reference.html#concept-logging.default-handler) as a `slog.Handler`. It
-resolves and retains one verified installed-runtime binding.
+Go callers install [`logging.Default("my-app")`](https://openabstractions.github.io/reference.html#concept-logging.default-handler) as the `slog` handler.
+It queues each record at once and delivers it in the background through one
+verified installed-runtime binding. `defer h.Close` delivers the queued
+records before `main` returns, waiting up to 5 s without a deadline.
 
 ```go
 package main
 
 import (
+    "context"
     "log/slog"
 
     logging "github.com/openabstractions/abstraction-logging/go"
 )
 
 func main() {
-    slog.SetDefault(slog.New(logging.Default("my-app")))
+    h := logging.Default("my-app")
+    defer h.Close(context.Background())
+    slog.SetDefault(slog.New(h))
     slog.Info("worker started", "component", "indexer")
 }
 ```
+
+On a machine without OA, the records go nowhere unless the program installs
+a native logger beside the facade (CONTRACT.md LOG-S15). Go passes any
+`slog.Handler`, and Python any `logging.Handler`:
+
+```go
+h := logging.DefaultWithNative("my-app", slog.NewTextHandler(os.Stderr, nil))
+```
+
+```python
+from abstraction.logging.handler import resolved_handler
+
+logging.getLogger().addHandler(resolved_handler(program="my-app", native=logging.StreamHandler()))
+```
+
+While the machine offers no logging service, records go to that handler.
+OA takes over when it is installed, without a restart. C++, Rust and
+JavaScript get the native logger in 0.9.0.
 
 Python callers attach `ServiceHandler` from `abstraction.logging.handler` to
 the standard `logging` module.
