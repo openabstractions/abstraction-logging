@@ -83,13 +83,18 @@ func appPermit() ApplicationHistoryPolicy {
 }
 func appWrite(t *testing.T, s *logging.FileSink, account, program, message string) {
 	t.Helper()
-	if err := s.WriteAttributed(appRecord(message), logging.Emitter{Version: 1, Account: account, Program: program, Key: identity.ProgramKey(program)}); err != nil {
+	// Match the native receiver: capture the canonical program and file key once.
+	resource, err := logging.PrepareApplicationResource(program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WriteAttributed(appRecord(message), logging.Emitter{Version: 1, Account: account, Program: resource.Program, Key: resource.CapturedFileKey}); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestApplicationHistoryFiltersBeforeQuotaAndChecksOneFinalBatch(t *testing.T) {
-	a := filepath.Join(t.TempDir(), "a")
+	a := identity.NormalizeSubjectProgram(filepath.Join(t.TempDir(), "a"))
 	b := filepath.Join(t.TempDir(), "b")
 	var final atomic.Int64
 	policy := appPermit()
